@@ -393,16 +393,12 @@ export function createUIServer({ db }) {
       let sessions = await db.listSessions();
       if (agentFilter) sessions = sessions.filter(s => s.agent === agentFilter);
       if (dateFilter) sessions = sessions.filter(s => s.latest_timestamp?.startsWith(dateFilter));
+      const flagCounts = await db.getSessionFlagCounts();
+      const countsMap = new Map(flagCounts.map(c => [c.session_id, c]));
       for (const s of sessions) {
-        const records = await db.getSession(s.session_id);
-        let total = 0, unreviewed = 0;
-        for (const r of records) {
-          const flags = await db.getFlagsForRecord(r.id);
-          total += flags.length;
-          unreviewed += flags.filter(f => f.review_status === 'unreviewed').length;
-        }
-        s.total_flags = total;
-        s.unreviewed_flags = unreviewed;
+        const counts = countsMap.get(s.session_id);
+        s.total_flags = counts?.total_flags ?? 0;
+        s.unreviewed_flags = counts?.unreviewed_flags ?? 0;
       }
       return json(res, 200, sessions);
     }
@@ -420,11 +416,8 @@ export function createUIServer({ db }) {
     const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
     if (method === 'GET' && sessionMatch) {
       const sessionId = decodeURIComponent(sessionMatch[1]);
-      const records = await db.getSession(sessionId);
+      const records = await db.getRecordsWithFlags(sessionId);
       if (!records.length) return json(res, 404, { error: 'Session not found' });
-      for (const record of records) {
-        record.flags = await db.getFlagsForRecord(record.id);
-      }
       return json(res, 200, records);
     }
 
