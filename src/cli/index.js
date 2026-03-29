@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 import { App } from '../app.js';
 import { loadConfig } from '../config.js';
 import { validateClassifierWithFallback } from '../classifier/index.js';
@@ -52,7 +53,7 @@ function log(msg) {
   fs.appendFileSync(LOG_FILE, line);
 }
 
-async function cmdStart({ verbose = false } = {}) {
+async function cmdStart({ verbose = false, daemon = false } = {}) {
   ensureDir();
 
   const existingPid = readPid();
@@ -61,8 +62,47 @@ async function cmdStart({ verbose = false } = {}) {
     process.exit(1);
   }
 
+  // Fork a detached daemon when not in verbose or daemon mode
+  if (!verbose && !daemon) {
+    const config = loadConfig(CONFIG_FILE);
+    console.log('Starting Agent Feed...');
+
+    const logFd = fs.openSync(LOG_FILE, 'a');
+    const child = spawn(process.execPath, [process.argv[1], 'start', '--daemon'], {
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+      env: { ...process.env, AGENT_FEED_DAEMON: '1' },
+    });
+    fs.closeSync(logFd);
+    child.unref();
+
+    // Poll for PID file to confirm daemon started
+    const timeout = 10000;
+    const start = Date.now();
+    await new Promise((resolve, reject) => {
+      const check = () => {
+        if (fs.existsSync(PID_FILE)) {
+          resolve();
+        } else if (Date.now() - start > timeout) {
+          reject(new Error('Startup timed out after 10s. Check logs: ' + LOG_FILE));
+        } else {
+          setTimeout(check, 100);
+        }
+      };
+      child.on('exit', (code) => {
+        if (code !== 0) reject(new Error(`Daemon process exited with code ${code}. Check logs: ${LOG_FILE}`));
+      });
+      check();
+    });
+
+    const pid = readPid();
+    console.log(`  ✓ Proxy listening on :${config.proxy.port}`);
+    console.log(`  ✓ Web UI available at http://localhost:${config.ui.port}`);
+    console.log(`Agent Feed running (PID ${pid}), logs: ${LOG_FILE}`);
+    process.exit(0);
+  }
+
   const config = loadConfig(CONFIG_FILE);
-  console.log('Starting Agent Feed...');
 
   const app = new App({ config });
 
@@ -75,6 +115,7 @@ async function cmdStart({ verbose = false } = {}) {
     console.error(`  ✗ ${reason}`);
     console.error('\nAgent Feed failed to start. Resolve the above and try again.');
     log(`startup failed: ${reason}`);
+    await app.stop().catch(() => {});
     process.exit(1);
   }
 
@@ -87,45 +128,43 @@ async function cmdStart({ verbose = false } = {}) {
     ? ` (fallback from ${configuredProvider})`
     : '';
 
-  console.log(`  ✓ Proxy listening on :${status.proxyPort}`);
-  console.log(`  ✓ Classifier ready (${classifierLabel}${fallbackNote})`);
-  console.log(`  ✓ Web UI available at http://localhost:${status.uiPort}`);
-  console.log(`  ✓ SQLite initialized at ${config.storage.path} (${dbSize})`);
-  console.log('Agent Feed ready.');
-
+  writePid(process.pid);
   log(`started -- proxy :${status.proxyPort}, ui :${status.uiPort}`);
 
-  if (!verbose) {
-    // Run in background -- write PID and detach stdio
-    writePid(process.pid);
-
-    // Handle graceful shutdown
-    const shutdown = async () => {
-      log('shutting down');
-      await app.stop();
-      clearPid();
-      process.exit(0);
-    };
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
-
-    // Keep process alive
-    process.stdin.resume();
-  } else {
-    writePid(process.pid);
+  if (verbose) {
+    console.log('Starting Agent Feed...');
+    console.log(`  ✓ Proxy listening on :${status.proxyPort}`);
+    console.log(`  ✓ Classifier ready (${classifierLabel}${fallbackNote})`);
+    console.log(`  ✓ Web UI available at http://localhost:${status.uiPort}`);
+    console.log(`  ✓ SQLite initialized at ${config.storage.path} (${dbSize})`);
+    console.log('Agent Feed ready.');
     console.log('\n[verbose] Logging to', LOG_FILE);
     console.log('[verbose] Press Ctrl+C to stop\n');
 
     const shutdown = async () => {
       console.log('\nStopping Agent Feed...');
       log('shutting down (verbose)');
-      await app.stop();
-      clearPid();
-      process.exit(0);
+      try { await app.stop(); } finally {
+        clearPid();
+        process.exit(0);
+      }
     };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
     process.stdin.resume();
+  } else {
+    // daemon mode: log startup details to file, keep process alive
+    log(`proxy :${status.proxyPort}, classifier: ${classifierLabel}${fallbackNote}, ui :${status.uiPort}, db: ${dbSize}`);
+
+    const shutdown = async () => {
+      log('shutting down');
+      try { await app.stop(); } finally {
+        clearPid();
+        process.exit(0);
+      }
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
   }
 }
 
@@ -205,10 +244,11 @@ async function cmdEval(subcommand) {
 const args = process.argv.slice(2);
 const command = args[0];
 const verbose = args.includes('--verbose');
+const daemon = args.includes('--daemon');
 
 switch (command) {
   case 'start':
-    await cmdStart({ verbose });
+    await cmdStart({ verbose, daemon });
     break;
   case 'stop':
     await cmdStop();
