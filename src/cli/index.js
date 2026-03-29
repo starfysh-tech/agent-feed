@@ -144,6 +144,47 @@ async function cmdStop() {
   }
 }
 
+async function cmdEval(subcommand) {
+  if (subcommand !== 'classifier') {
+    console.error(`Unknown eval target: ${subcommand}`);
+    console.error('Usage: agent-feed eval classifier');
+    process.exit(1);
+  }
+
+  ensureDir();
+  const config = loadConfig(CONFIG_FILE);
+  const dbPath = config.storage.path.startsWith('~')
+    ? path.join(os.homedir(), config.storage.path.slice(1))
+    : config.storage.path;
+
+  if (!fs.existsSync(dbPath)) {
+    console.error(`Database not found at ${dbPath}. Run agent-feed start first.`);
+    process.exit(1);
+  }
+
+  const { Database } = await import('../storage/database.js');
+  const { buildClassifier, validateClassifier } = await import('../classifier/index.js');
+  const { runClassifierEval, formatEvalReport } = await import('../eval.js');
+
+  const db = new Database(dbPath);
+  await db.init();
+
+  const validation = await validateClassifier(config.classifier);
+  if (!validation.ok) {
+    console.error(`Classifier unreachable: ${validation.reason}`);
+    process.exit(1);
+  }
+
+  const classifierFn = buildClassifier(config.classifier);
+
+  console.log('Running classifier eval...');
+  const report = await runClassifierEval({ db, classifierFn });
+  await db.close();
+
+  console.log('');
+  console.log(formatEvalReport(report));
+}
+
 // Parse CLI args
 const args = process.argv.slice(2);
 const command = args[0];
@@ -156,10 +197,14 @@ switch (command) {
   case 'stop':
     await cmdStop();
     break;
+  case 'eval':
+    await cmdEval(args[1]);
+    break;
   default:
     console.log('Usage:');
     console.log('  agent-feed start           Start proxy, classifier, and UI in background');
     console.log('  agent-feed start --verbose  Start in foreground with diagnostic logging');
     console.log('  agent-feed stop             Stop all services');
+    console.log('  agent-feed eval classifier  Run classifier precision/recall eval');
     process.exit(command ? 1 : 0);
 }
