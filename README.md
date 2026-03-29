@@ -8,6 +8,23 @@ Agent Feed sits invisibly between your coding agents and their APIs. Every respo
 
 It works with Claude Code, Codex, and Gemini. Agents are unaware of it.
 
+## Use cases
+
+**Post-session validation**
+You run a long automated coding session -- feature build, refactor, bug triage. Before merging or reviewing output, open Agent Feed and scan what the agent decided. Catch choices that conflict with your architecture, dependencies you didn't intend to introduce, or assumptions that are wrong about your environment.
+
+**Prompt and harness improvement**
+Over time, patterns emerge. Your agent consistently applies a workaround pattern in auth flows. It makes assumptions about infrastructure that are often wrong. Assumptions cluster around a specific type of task. These patterns are invisible turn-by-turn but obvious in aggregate. Use the Trends view to identify them, then adjust your system prompt or harness to address the root cause.
+
+**Junior and offshore developer oversight**
+When staff-augmented developers use coding agents, you lose visibility into what the agent decided on their behalf. Agent Feed creates a reviewable audit trail without requiring developers to document anything themselves. You can spot drift from your standards before it reaches code review.
+
+**Classifier quality feedback loop**
+The eval command measures how well the classifier extracts flags from raw responses. As you review flags and mark false positives, the ground truth set grows. Run `eval classifier` periodically to track whether classifier quality is improving or degrading across prompt iterations.
+
+**Pre-merge decision audit**
+Before a PR review, pull up the session that produced the branch and scan flagged decisions. Reviewers can focus on code quality knowing the architectural decisions have already been surfaced and evaluated separately.
+
 ## How it works
 
 ```
