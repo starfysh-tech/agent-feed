@@ -1,6 +1,13 @@
 import http from 'node:http';
+import https from 'node:https';
 
 const SCRUBBED_HEADERS = ['authorization', 'x-api-key', 'x-goog-api-key'];
+
+export const UPSTREAM_MAP = {
+  '/anthropic': { host: 'api.anthropic.com', port: 443, tls: true },
+  '/openai':    { host: 'api.openai.com', port: 443, tls: true },
+  '/google':    { host: 'generativelanguage.googleapis.com', port: 443, tls: true },
+};
 
 function scrubHeaders(headers) {
   const scrubbed = { ...headers };
@@ -11,10 +18,11 @@ function scrubHeaders(headers) {
 }
 
 export class Proxy {
-  constructor({ port = 8080, onCapture = () => {} } = {}) {
+  constructor({ port = 8080, onCapture = () => {}, upstreamMap = UPSTREAM_MAP } = {}) {
     this._configPort = port;
     this.port = null;
     this.onCapture = onCapture;
+    this._upstreamMap = upstreamMap;
     this._server = null;
   }
 
@@ -48,18 +56,34 @@ export class Proxy {
   }
 
   _forwardRequest(req, requestBody, res) {
-    // Determine target from x-forwarded-host header or host
-    const targetHost = req.headers['x-forwarded-host'] || req.headers['host'];
-    const protocol = req.headers['x-target-protocol'] || 'https';
+    let targetHost, targetPort, useTls, forwardPath;
 
-    if (!targetHost) {
-      res.writeHead(400);
-      res.end(JSON.stringify({ error: 'Missing target host' }));
-      return;
+    // Check for path-prefix routing
+    const prefixMatch = Object.entries(this._upstreamMap).find(([prefix]) => req.url.startsWith(prefix));
+
+    if (prefixMatch) {
+      const [prefix, upstream] = prefixMatch;
+      targetHost = upstream.host;
+      targetPort = upstream.port;
+      useTls = upstream.tls;
+      forwardPath = req.url.slice(prefix.length) || '/';
+    } else {
+      // Fallback: x-forwarded-host or host header (backward compat)
+      const hostHeader = req.headers['x-forwarded-host'] || req.headers['host'];
+      const protocol = req.headers['x-target-protocol'] || 'https';
+
+      if (!hostHeader) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Missing target host' }));
+        return;
+      }
+
+      const [hostname, portStr] = hostHeader.split(':');
+      targetHost = hostname;
+      targetPort = portStr ? parseInt(portStr, 10) : (protocol === 'https' ? 443 : 80);
+      useTls = protocol === 'https';
+      forwardPath = req.url;
     }
-
-    const [hostname, portStr] = targetHost.split(':');
-    const port = portStr ? parseInt(portStr, 10) : (protocol === 'https' ? 443 : 80);
 
     // Build forwarded headers, scrubbing sensitive values
     const forwardHeaders = { ...req.headers };
@@ -68,9 +92,9 @@ export class Proxy {
     forwardHeaders['host'] = targetHost;
 
     const options = {
-      hostname,
-      port,
-      path: req.url,
+      hostname: targetHost,
+      port: targetPort,
+      path: forwardPath,
       method: req.method,
       headers: forwardHeaders,
     };
@@ -79,7 +103,9 @@ export class Proxy {
     const scrubbedHeaders = scrubHeaders(forwardHeaders);
     const scrubbedRequestBody = this._scrubBodyKeys(requestBody);
 
-    const upstreamReq = http.request(options, (upstreamRes) => {
+    const transport = useTls ? https : http;
+
+    const upstreamReq = transport.request(options, (upstreamRes) => {
       let responseBody = '';
       upstreamRes.on('data', chunk => { responseBody += chunk; });
       upstreamRes.on('end', () => {
@@ -91,8 +117,8 @@ export class Proxy {
         setImmediate(() => {
           this.onCapture({
             timestamp,
-            host: hostname,
-            path: req.url,
+            host: targetHost,
+            path: forwardPath,
             method: req.method,
             requestHeaders: scrubbedHeaders,
             rawRequest: scrubbedRequestBody,

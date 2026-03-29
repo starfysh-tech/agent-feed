@@ -1,9 +1,9 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { Proxy } from '../src/proxy/index.js';
+import { Proxy, UPSTREAM_MAP } from '../src/proxy/index.js';
 
-// Helper to make a request through the proxy
+// Helper to make a request through the proxy using x-forwarded-host (backward compat)
 function makeRequest(proxyPort, targetPort, path = '/', body = null) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -15,6 +15,29 @@ function makeRequest(proxyPort, targetPort, path = '/', body = null) {
         'x-forwarded-host': `localhost:${targetPort}`,
         'content-type': 'application/json',
         'x-target-protocol': 'http',
+      },
+    };
+    const req = http.request(options, res => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+// Helper to make a request through the proxy using path-prefix routing
+function makePathPrefixRequest(proxyPort, prefix, path = '/', body = null) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'localhost',
+      port: proxyPort,
+      path: prefix + path,
+      method: body ? 'POST' : 'GET',
+      headers: {
+        'content-type': 'application/json',
       },
     };
     const req = http.request(options, res => {
@@ -143,5 +166,103 @@ describe('Proxy', () => {
   it('returns 502 when target is unreachable', async () => {
     const res = await makeRequest(proxy.port, 19999, '/v1/messages', { model: 'test' });
     assert.equal(res.status, 502);
+  });
+
+  it('routes requests using path prefix', async () => {
+    const captures = [];
+    const prefixProxy = new Proxy({
+      port: 0,
+      onCapture: (data) => captures.push(data),
+      upstreamMap: {
+        '/test': { host: 'localhost', port: targetPort, tls: false },
+      },
+    });
+    await prefixProxy.start();
+
+    const res = await makePathPrefixRequest(
+      prefixProxy.port,
+      '/test',
+      '/v1/messages',
+      { model: 'claude-test', messages: [{ role: 'user', content: 'hello' }] }
+    );
+
+    await prefixProxy.stop();
+
+    assert.equal(res.status, 200);
+    const parsed = JSON.parse(res.body);
+    assert.equal(parsed.id, 'msg_test123');
+  });
+
+  it('strips path prefix before forwarding', async () => {
+    const serverRequests = [];
+    const prefixProxy = new Proxy({
+      port: 0,
+      onCapture: () => {},
+      upstreamMap: {
+        '/test': { host: 'localhost', port: targetPort, tls: false },
+      },
+    });
+    await prefixProxy.start();
+
+    // Track what path the target server receives via capturedRequests
+    const beforeCount = capturedRequests.length;
+
+    await makePathPrefixRequest(
+      prefixProxy.port,
+      '/test',
+      '/v1/messages',
+      { model: 'claude-test' }
+    );
+
+    await prefixProxy.stop();
+
+    const newRequests = capturedRequests.slice(beforeCount);
+    assert.equal(newRequests.length, 1);
+    assert.equal(newRequests[0].path, '/v1/messages');
+  });
+
+  it('sets capture host to upstream hostname', async () => {
+    const captures = [];
+    const prefixProxy = new Proxy({
+      port: 0,
+      onCapture: (data) => captures.push(data),
+      upstreamMap: {
+        '/test': { host: 'localhost', port: targetPort, tls: false },
+      },
+    });
+    await prefixProxy.start();
+
+    await makePathPrefixRequest(
+      prefixProxy.port,
+      '/test',
+      '/v1/messages',
+      { model: 'claude-test' }
+    );
+
+    await prefixProxy.stop();
+
+    assert.equal(captures.length, 1);
+    assert.equal(captures[0].host, 'localhost');
+    assert.equal(captures[0].path, '/v1/messages');
+  });
+
+  it('falls back to x-forwarded-host when no prefix matches', async () => {
+    const res = await makeRequest(
+      proxy.port,
+      targetPort,
+      '/v1/messages',
+      { model: 'claude-test', messages: [{ role: 'user', content: 'hello' }] }
+    );
+    assert.equal(res.status, 200);
+    const parsed = JSON.parse(res.body);
+    assert.equal(parsed.id, 'msg_test123');
+  });
+
+  it('exports UPSTREAM_MAP with expected entries', () => {
+    assert.ok(UPSTREAM_MAP['/anthropic']);
+    assert.equal(UPSTREAM_MAP['/anthropic'].host, 'api.anthropic.com');
+    assert.equal(UPSTREAM_MAP['/anthropic'].tls, true);
+    assert.ok(UPSTREAM_MAP['/openai']);
+    assert.ok(UPSTREAM_MAP['/google']);
   });
 });
