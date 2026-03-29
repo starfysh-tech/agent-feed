@@ -108,11 +108,71 @@ export function buildClassifier(config, fetchFn = fetch) {
   };
 }
 
+const FALLBACK_PROVIDERS = [
+  { provider: 'ollama',    base_url: 'http://localhost:11434', model: 'llama3.1' },
+  { provider: 'lmstudio', base_url: 'http://localhost:1234',  model: 'local-model' },
+];
+
+export async function validateClassifierWithFallback(config, fetchFn = fetch) {
+  const tried = [];
+
+  // 1. Try configured provider first
+  const primary = await validateClassifier(config, fetchFn);
+  if (primary.ok) {
+    return { ...primary, provider: config.provider, base_url: config.base_url, effectiveConfig: config };
+  }
+  tried.push({ provider: config.provider, reason: primary.reason });
+
+  // 2. Try local fallbacks (skip if configured provider is already that local provider)
+  for (const fallback of FALLBACK_PROVIDERS) {
+    if (fallback.provider === config.provider) continue;
+    const result = await validateClassifier(fallback, fetchFn);
+    if (result.ok) {
+      const effectiveConfig = { ...config, ...fallback };
+      return {
+        ok: true,
+        label: result.label,
+        provider: fallback.provider,
+        base_url: fallback.base_url,
+        effectiveConfig,
+      };
+    }
+    tried.push({ provider: fallback.provider, reason: result.reason });
+  }
+
+  // 3. Try Anthropic API key directly (covers SSO-adjacent setups with a separate classifier key)
+  if (config.provider !== 'anthropic') {
+    const anthropicConfig = {
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      base_url: '',
+    };
+    const result = await validateClassifier(anthropicConfig, fetchFn);
+    if (result.ok) {
+      return {
+        ok: true,
+        label: result.label,
+        provider: 'anthropic',
+        base_url: '',
+        effectiveConfig: anthropicConfig,
+      };
+    }
+    tried.push({ provider: 'anthropic', reason: result.reason });
+  }
+
+  // All failed
+  const summary = tried.map(t => `${t.provider}: ${t.reason}`).join('; ');
+  return {
+    ok: false,
+    reason: `No classifier available. Tried: ${summary}`,
+  };
+}
+
+
 export async function validateClassifier(config, fetchFn = fetch) {
   const { provider, model, base_url } = config;
 
   if (provider === 'anthropic') {
-    // Validate by checking the API key is set
     if (!process.env.ANTHROPIC_API_KEY) {
       return { ok: false, reason: 'ANTHROPIC_API_KEY environment variable not set' };
     }

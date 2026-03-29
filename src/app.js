@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { Proxy } from './proxy/index.js';
 import { Database } from './storage/database.js';
 import { Pipeline } from './pipeline.js';
-import { buildClassifier, validateClassifier } from './classifier/index.js';
+import { buildClassifier, validateClassifierWithFallback } from './classifier/index.js';
 import { createUIServer } from './ui/server.js';
 
 function resolvePath(p) {
@@ -27,15 +27,18 @@ export class App {
   }
 
   async start() {
-    const { proxy: proxyCfg, ui: uiCfg, classifier: classifierCfg, storage: storageCfg } = this.config;
+    const { proxy: proxyCfg, ui: uiCfg, storage: storageCfg } = this.config;
+    let classifierCfg = this.config.classifier;
 
     // Validate classifier unless skipped (test mode)
     if (!this.skipClassifierValidation) {
-      const validation = await validateClassifier(classifierCfg);
+      const validation = await validateClassifierWithFallback(classifierCfg);
       if (!validation.ok) {
         throw new Error(`Classifier unreachable: ${validation.reason}`);
       }
       this._classifierLabel = validation.label;
+      // Use whichever provider actually connected (may differ from config)
+      classifierCfg = validation.effectiveConfig;
     }
 
     // Init database

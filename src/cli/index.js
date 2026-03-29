@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { App } from '../app.js';
 import { loadConfig } from '../config.js';
+import { validateClassifierWithFallback } from '../classifier/index.js';
 
 const AGENT_FEED_DIR = path.join(os.homedir(), '.agent-feed');
 const PID_FILE = path.join(AGENT_FEED_DIR, 'agent-feed.pid');
@@ -80,9 +81,14 @@ async function cmdStart({ verbose = false } = {}) {
   const status = app.getStatus();
   const dbSize = formatBytes(status.dbSizeBytes);
   const classifierLabel = status.classifierLabel ?? config.classifier.provider;
+  const configuredProvider = config.classifier.provider;
+  const actualProvider = status.classifierLabel?.split('/')[0];
+  const fallbackNote = actualProvider && actualProvider !== configuredProvider
+    ? ` (fallback from ${configuredProvider})`
+    : '';
 
   console.log(`  ✓ Proxy listening on :${status.proxyPort}`);
-  console.log(`  ✓ Classifier ready (${classifierLabel})`);
+  console.log(`  ✓ Classifier ready (${classifierLabel}${fallbackNote})`);
   console.log(`  ✓ Web UI available at http://localhost:${status.uiPort}`);
   console.log(`  ✓ SQLite initialized at ${config.storage.path} (${dbSize})`);
   console.log('Agent Feed ready.');
@@ -166,19 +172,19 @@ async function cmdEval(subcommand) {
   }
 
   const { Database } = await import('../storage/database.js');
-  const { buildClassifier, validateClassifier } = await import('../classifier/index.js');
+  const { buildClassifier, validateClassifierWithFallback } = await import('../classifier/index.js');
   const { runClassifierEval, getEvalExamples, formatEvalReport, formatEvalExamples } = await import('../eval.js');
 
   const db = new Database(dbPath);
   await db.init();
 
-  const validation = await validateClassifier(config.classifier);
+  const validation = await validateClassifierWithFallback(config.classifier);
   if (!validation.ok) {
     console.error(`Classifier unreachable: ${validation.reason}`);
     process.exit(1);
   }
 
-  const classifierFn = buildClassifier(config.classifier);
+  const classifierFn = buildClassifier(validation.effectiveConfig);
 
   if (subcommand === 'classifier') {
     console.log('Running classifier eval...');
