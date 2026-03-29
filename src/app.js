@@ -59,7 +59,9 @@ export class App {
     this._proxy = new Proxy({
       port: proxyCfg.port,
       onCapture: (capture) => {
-        pipeline.process(capture).catch(() => {});
+        pipeline.process(capture).catch((err) => {
+          console.error('[agent-feed] pipeline error:', err.message ?? err);
+        });
       },
     });
     await this._proxy.start();
