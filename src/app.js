@@ -92,7 +92,7 @@ export class App {
       if (this._dbPath && fs.existsSync(this._dbPath)) {
         dbSizeBytes = fs.statSync(this._dbPath).size;
       }
-    } catch {}
+    } catch { /* stat may fail if file was just deleted — return 0 */ }
     return {
       proxyPort: this.proxyPort,
       uiPort: this.uiPort,
