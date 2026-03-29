@@ -98,8 +98,23 @@ function buildHTML() {
     .raw-toggle { font-size: 11px; color: var(--text-muted); cursor: pointer; font-family: 'IBM Plex Mono', monospace; background: none; border: none; padding: 4px 8px; border-radius: 2px; transition: background 0.1s; }
     .raw-toggle:hover { background: var(--surface2); color: var(--text); }
     .raw-response { margin: 8px 14px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 3px; padding: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-dim); white-space: pre-wrap; overflow-x: auto; max-height: 300px; overflow-y: auto; }
+    .tab-btn { flex: 1; padding: 8px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.1s; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .trends-panel { padding: 16px; overflow-y: auto; flex: 1; }
+    .trends-section { margin-bottom: 20px; }
+    .trends-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+    .trend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .trend-type-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; width: 90px; flex-shrink: 0; }
+    .trend-bar-wrap { flex: 1; background: var(--surface2); border-radius: 2px; height: 6px; overflow: hidden; }
+    .trend-bar { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.3s; }
+    .trend-count { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-muted); width: 24px; text-align: right; }
+    .trend-fp { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--red); width: 32px; text-align: right; }
+    .trend-session-row { padding: 6px 0; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .trend-session-row:hover { color: var(--accent); }
+    .trend-session-id { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+    .trend-session-count { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-muted); }
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
-    .empty-state-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
     .empty-state p { font-size: 13px; line-height: 1.6; }
     .loading { color: var(--text-muted); padding: 40px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -124,7 +139,12 @@ function buildHTML() {
       </select>
       <input type="date" id="filter-date">
     </div>
+    <div style="display:flex;border-bottom:1px solid var(--border)">
+      <button class="tab-btn active" id="tab-sessions" onclick="switchTab('sessions')">Sessions</button>
+      <button class="tab-btn" id="tab-trends" onclick="switchTab('trends')">Trends</button>
+    </div>
     <div id="session-list"><div class="loading">loading...</div></div>
+    <div id="trends-panel" class="trends-panel" style="display:none"></div>
   </div>
   <div id="main">
     <div class="empty-state" id="empty-state">
@@ -278,6 +298,71 @@ function esc(s) {
 $('filter-agent').addEventListener('change', loadSessions);
 $('filter-date').addEventListener('change', loadSessions);
 loadSessions();
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  const isSessions = tab === 'sessions';
+  $('tab-sessions').classList.toggle('active', isSessions);
+  $('tab-trends').classList.toggle('active', !isSessions);
+  $('session-list').style.display = isSessions ? '' : 'none';
+  $('trends-panel').style.display = isSessions ? 'none' : '';
+  if (!isSessions) loadTrends();
+}
+
+async function loadTrends() {
+  const agent = $('filter-agent').value;
+  const date  = $('filter-date').value;
+  let url = '/api/trends?';
+  if (agent) url += 'agent=' + encodeURIComponent(agent) + '&';
+  if (date)  url += 'dateFrom=' + encodeURIComponent(date) + '&dateTo=' + encodeURIComponent(date) + '&';
+  const res = await fetch(url);
+  const data = await res.json();
+  renderTrends(data);
+}
+
+function renderTrends(data) {
+  const panel = $('trends-panel');
+  const maxCount = Math.max(...(data.by_type.map(t => t.count)), 1);
+
+  const typeColors = {
+    decision:'#4a9eff', assumption:'#f08030', architecture:'#3dd68c',
+    pattern:'#a070e8', dependency:'#40b0f0', tradeoff:'#f0c040',
+    constraint:'#f05060', workaround:'#d0a030', risk:'#f06070',
+  };
+
+  const byTypeHtml = data.by_type.length ? data.by_type.map(t => {
+    const pct = Math.round((t.count / maxCount) * 100);
+    const fpPct = Math.round(t.false_positive_rate * 100);
+    const color = typeColors[t.type] || 'var(--accent)';
+    return '<div class="trend-row">' +
+      '<span class="trend-type-label" style="color:' + color + '">' + esc(t.type) + '</span>' +
+      '<div class="trend-bar-wrap"><div class="trend-bar" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+      '<span class="trend-count">' + t.count + '</span>' +
+      (fpPct > 0 ? '<span class="trend-fp">' + fpPct + '%fp</span>' : '<span class="trend-fp"></span>') +
+      '</div>';
+  }).join('') : '<div style="font-size:12px;color:var(--text-muted)">No flags yet</div>';
+
+  const bySessionHtml = data.by_session.length ? data.by_session.map(s =>
+    '<div class="trend-session-row" onclick="switchTab(\'sessions\');selectSession(' + JSON.stringify(s.session_id) + ')">' +
+    '<span class="trend-session-id">' + esc(s.session_id) + '</span>' +
+    '<span class="trend-session-count">' + (s.flag_count || 0) + ' flags</span>' +
+    '</div>'
+  ).join('') : '<div style="font-size:12px;color:var(--text-muted)">No sessions yet</div>';
+
+  panel.innerHTML =
+    '<div class="trends-section">' +
+      '<div class="trends-label">Total Flags: ' + data.total_flags + '</div>' +
+    '</div>' +
+    '<div class="trends-section">' +
+      '<div class="trends-label">By Type</div>' +
+      byTypeHtml +
+    '</div>' +
+    '<div class="trends-section">' +
+      '<div class="trends-label">By Session</div>' +
+      bySessionHtml +
+    '</div>';
+}
+
 </script>
 </body>
 </html>`;
@@ -291,6 +376,16 @@ export function createUIServer({ db }) {
     const url = new URL(req.url, `http://localhost`);
     const pathname = url.pathname;
     const method = req.method;
+
+    if (method === 'GET' && pathname === '/api/trends') {
+      const agent    = url.searchParams.get('agent')    || undefined;
+      const repo     = url.searchParams.get('repo')     || undefined;
+      const branch   = url.searchParams.get('branch')   || undefined;
+      const dateFrom = url.searchParams.get('dateFrom') || undefined;
+      const dateTo   = url.searchParams.get('dateTo')   || undefined;
+      const trends = await db.getTrends({ agent, repo, branch, dateFrom, dateTo });
+      return json(res, 200, trends);
+    }
 
     if (method === 'GET' && pathname === '/api/sessions') {
       const agentFilter = url.searchParams.get('agent');

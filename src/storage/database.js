@@ -195,6 +195,67 @@ export class Database {
     this._persist();
   }
 
+  async getTrends({ agent, repo, branch, dateFrom, dateTo } = {}) {
+    // Build WHERE clause for records
+    const conditions = [];
+    const params = [];
+    if (agent)    { conditions.push('r.agent = ?');       params.push(agent); }
+    if (repo)     { conditions.push('r.repo = ?');        params.push(repo); }
+    if (branch)   { conditions.push('r.git_branch = ?');  params.push(branch); }
+    if (dateFrom) { conditions.push('r.timestamp >= ?');  params.push(dateFrom); }
+    if (dateTo)   { conditions.push('r.timestamp <= ?');  params.push(dateTo); }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    // Total flags
+    const totalResult = this.db.exec(
+      `SELECT COUNT(f.id) as total FROM flags f JOIN records r ON f.record_id = r.id ${where}`,
+      params
+    );
+    const total_flags = totalResult[0]?.values[0]?.[0] ?? 0;
+
+    // By type with false_positive_rate
+    const byTypeResult = this.db.exec(
+      `SELECT
+        f.type,
+        COUNT(f.id) as count,
+        SUM(CASE WHEN f.review_status = 'false_positive' THEN 1 ELSE 0 END) as fp_count
+       FROM flags f JOIN records r ON f.record_id = r.id ${where}
+       GROUP BY f.type
+       ORDER BY count DESC`,
+      params
+    );
+
+    const by_type = byTypeResult.length
+      ? this._rowsToObjects(byTypeResult[0]).map(row => ({
+          type: row.type,
+          count: row.count,
+          false_positive_rate: row.count > 0 ? row.fp_count / row.count : 0,
+        }))
+      : [];
+
+    // By session
+    const bySessionResult = this.db.exec(
+      `SELECT
+        r.session_id,
+        r.agent,
+        r.repo,
+        r.git_branch,
+        MAX(r.timestamp) as latest_timestamp,
+        COUNT(f.id) as flag_count
+       FROM records r LEFT JOIN flags f ON f.record_id = r.id ${where}
+       GROUP BY r.session_id
+       ORDER BY latest_timestamp DESC`,
+      params
+    );
+
+    const by_session = bySessionResult.length
+      ? this._rowsToObjects(bySessionResult[0])
+      : [];
+
+    return { total_flags, by_type, by_session };
+  }
+
   async getDbSizeBytes() {
     if (!fs.existsSync(this.dbPath)) return 0;
     return fs.statSync(this.dbPath).size;
