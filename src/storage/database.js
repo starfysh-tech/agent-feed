@@ -256,6 +256,41 @@ export class Database {
     return { total_flags, by_type, by_session };
   }
 
+  async getSessionFlagCounts() {
+    const result = this.db.exec(
+      `SELECT
+        r.session_id,
+        COUNT(f.id) as total_flags,
+        SUM(CASE WHEN f.review_status = 'unreviewed' THEN 1 ELSE 0 END) as unreviewed_flags
+       FROM records r
+       LEFT JOIN flags f ON f.record_id = r.id
+       GROUP BY r.session_id`
+    );
+    if (!result.length) return [];
+    return this._rowsToObjects(result[0]);
+  }
+
+  async getRecordsWithFlags(sessionId) {
+    const records = await this.getSession(sessionId);
+    if (!records.length) return [];
+    const recordIds = records.map(r => r.id);
+    const placeholders = recordIds.map(() => '?').join(',');
+    const flagResult = this.db.exec(
+      `SELECT * FROM flags WHERE record_id IN (${placeholders})`,
+      recordIds
+    );
+    const allFlags = flagResult.length ? this._rowsToObjects(flagResult[0]) : [];
+    const flagsByRecord = new Map();
+    for (const flag of allFlags) {
+      if (!flagsByRecord.has(flag.record_id)) flagsByRecord.set(flag.record_id, []);
+      flagsByRecord.get(flag.record_id).push(flag);
+    }
+    for (const record of records) {
+      record.flags = flagsByRecord.get(record.id) || [];
+    }
+    return records;
+  }
+
   async getDbSizeBytes() {
     if (!fs.existsSync(this.dbPath)) return 0;
     return fs.statSync(this.dbPath).size;
