@@ -1,29 +1,33 @@
 const MIN_SAMPLES_DEFAULT = 5;
 
-// For each labeled flag, re-run the classifier against the raw response
-// and check whether it would have produced the same flag type.
-// accepted + needs_change = true positives (classifier should find them)
-// false_positive = true negatives (classifier should NOT find them)
-export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAMPLES_DEFAULT } = {}) {
-  // Collect all reviewed flags with their parent raw response
+async function collectLabeledSamples(db) {
   const sessions = await db.listSessions();
   const samples = [];
-
   for (const session of sessions) {
-    const records = await db.getSession(session.session_id);
+    const records = await db.getRecordsWithFlags(session.session_id);
     for (const record of records) {
-      const flags = await db.getFlagsForRecord(record.id);
-      for (const flag of flags) {
+      for (const flag of record.flags) {
         if (flag.review_status === 'unreviewed') continue;
         samples.push({
           flagId: flag.id,
           type: flag.type,
+          content: flag.content,
           review_status: flag.review_status,
           raw_response: record.raw_response,
         });
       }
     }
   }
+  return samples;
+}
+
+// For each labeled flag, re-run the classifier against the raw response
+// and check whether it would have produced the same flag type.
+// accepted + needs_change = true positives (classifier should find them)
+// false_positive = true negatives (classifier should NOT find them)
+export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAMPLES_DEFAULT } = {}) {
+  // Collect all reviewed flags with their parent raw response
+  const samples = await collectLabeledSamples(db);
 
   if (!samples.length) {
     return {
@@ -116,25 +120,7 @@ export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAM
 }
 
 export async function getEvalExamples({ db, classifierFn } = {}) {
-  const sessions = await db.listSessions();
-  const samples = [];
-
-  for (const session of sessions) {
-    const records = await db.getSession(session.session_id);
-    for (const record of records) {
-      const flags = await db.getFlagsForRecord(record.id);
-      for (const flag of flags) {
-        if (flag.review_status === 'unreviewed') continue;
-        samples.push({
-          flagId: flag.id,
-          type: flag.type,
-          content: flag.content,
-          review_status: flag.review_status,
-          raw_response: record.raw_response,
-        });
-      }
-    }
-  }
+  const samples = await collectLabeledSamples(db);
 
   const missed = [];
   const false_positives = [];
