@@ -49,13 +49,15 @@ export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAM
       } else if (typeof parsed === 'string') {
         content = parsed;
       }
-    } catch {}
+    } catch { /* raw_response is not JSON — use as-is */ }
 
     let classifierFlags = [];
     try {
       const result = await classifierFn(content);
       classifierFlags = result.flags ?? [];
-    } catch {}
+    } catch (err) {
+      console.warn('[eval] classifier failed for sample:', err.message ?? err);
+    }
 
     const predicted = classifierFlags.some(f => f.type === sample.type);
     const isPositive = sample.review_status !== 'false_positive';
@@ -148,13 +150,15 @@ export async function getEvalExamples({ db, classifierFn } = {}) {
           .map(b => b.text)
           .join('\n') || content;
       }
-    } catch {}
+    } catch { /* raw_response is not JSON — use as-is */ }
 
     let classifierFlags = [];
     try {
       const result = await classifierFn(content);
       classifierFlags = result.flags ?? [];
-    } catch {}
+    } catch (err) {
+      console.warn('[eval] classifier failed for sample:', err.message ?? err);
+    }
 
     const predicted = classifierFlags.some(f => f.type === sample.type);
     const isPositive = sample.review_status !== 'false_positive';
