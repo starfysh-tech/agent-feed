@@ -77,7 +77,8 @@ Add the `export` lines to your shell profile so agents always route through the 
 node src/cli/index.js start                 Start proxy, classifier, and UI in background
 node src/cli/index.js start --verbose       Start in foreground with diagnostic logging
 node src/cli/index.js stop                  Stop all services
-node src/cli/index.js eval classifier       Run classifier precision/recall eval
+node src/cli/index.js eval classifier       Precision/recall report across labeled flags
+node src/cli/index.js eval show             Show missed flags and false positives
 ```
 
 Startup output confirms all services are healthy before detaching:
@@ -163,9 +164,26 @@ The Trends tab shows flag patterns across sessions:
 
 Use this to spot patterns like a prompt consistently producing workaround flags, or assumption rates rising after a system prompt change.
 
-## Classifier eval
+## Evals
 
-Once you have reviewed enough flags, measure classifier quality:
+Agent Feed has two kinds of evals: **classifier quality** (is the LLM correctly extracting flags?) and **agent/prompt quality** (are your prompts producing better decisions over time?). The first is measured with CLI commands. The second is visible in the Trends view.
+
+### Building a ground truth set
+
+The ground truth set is built passively as you review sessions. Every flag you mark `accepted`, `needs_change`, or `false_positive` in the UI becomes a labeled sample. You do not need a separate labeling step.
+
+To build a useful ground truth set:
+
+1. Run a few agent sessions covering different task types (auth, data modeling, API design, refactoring)
+2. Open the UI and work through the session detail view, marking each flag
+3. Use `accepted` or `needs_change` for flags that are real -- the classifier should have found them
+4. Use `false_positive` for flags the classifier extracted that are not meaningful
+
+A minimum of 5 samples per flag type produces reliable per-type metrics. Types below that threshold are flagged in the report. Aim for 10+ per type before acting on the numbers.
+
+### Measuring classifier quality
+
+Once you have reviewed flags, run the eval:
 
 ```bash
 node src/cli/index.js eval classifier
@@ -175,19 +193,98 @@ Output:
 
 ```
 Classifier Eval -- 2026-03-28
-Labeled samples: 87 flags across 12 sessions
+Labeled samples: 87
 
 Overall:    precision 0.81  recall 0.74  F1 0.77
 By type:
   decision       P 0.89  R 0.82  F1 0.85  (24 samples)
   assumption     P 0.76  R 0.71  F1 0.73  (18 samples)
   workaround     P 0.65  R 0.58  F1 0.61  (9 samples)
-  ...
+  risk           P 0.70  R 0.60  F1 0.65  (7 samples)
+  dependency     P 0.88  R 0.80  F1 0.84  (6 samples)
+  architecture   P 0.91  R 0.85  F1 0.88  (5 samples)
 
-Types below minimum sample threshold: constraint, tradeoff
+Types below minimum sample threshold: constraint, tradeoff, pattern
 ```
 
-The eval re-runs the classifier against every reviewed flag's raw response and compares output against your review decisions. `accepted` and `needs_change` flags are true positives. `false_positive` flags are true negatives.
+**Reading the numbers:**
+
+- **Precision** -- of the flags the classifier extracted, how many were real? Low precision means too much noise. Your review queue fills with things that aren't meaningful.
+- **Recall** -- of the real flags in the responses, how many did the classifier find? Low recall means you're missing things. Important decisions slip through unlogged.
+- **F1** -- harmonic mean of precision and recall. Use this as the single headline number when comparing across prompt iterations.
+
+For a review tool, recall matters more than precision. A missed decision is worse than a false positive you can quickly dismiss.
+
+### Finding what to fix
+
+To see the specific flags behind the numbers:
+
+```bash
+node src/cli/index.js eval show
+```
+
+Output:
+
+```
+Labeled: 87  TP: 63  Missed: 14  FP: 10
+
+── Missed flags (classifier should have found these) ────────────────
+  [assumption] Assuming the database schema already exists
+  Response: "I'll proceed with the migration assuming the schema is already in place..."
+
+  [workaround] Using string concatenation instead of parameterized queries temporarily
+  Response: "For now I'll use string concatenation -- we can switch to prepared statements..."
+
+── False Positives (classifier flagged, reviewer rejected) ──────────
+  [risk] Listed directory contents
+  Response: "Here are the files in the src directory: index.js, config.js, utils.js..."
+```
+
+Use this output to diagnose the classifier prompt. Missed flags tell you what language patterns the classifier is not recognizing. False positives tell you what benign content it is over-indexing on.
+
+### Improving the classifier prompt
+
+The classifier prompt lives in `src/classifier/index.js` as `CLASSIFICATION_PROMPT`. Edit it directly based on what `eval show` surfaces.
+
+Common patterns:
+
+| Problem | Likely cause | Fix |
+|---|---|---|
+| Missing `assumption` flags | Prompt examples don't cover implicit assumptions | Add examples of passive phrasing like "assuming X is available" |
+| False positives on file listings | Classifier over-triggers on list-like content | Add negative examples to the prompt |
+| Missing `workaround` flags | Temporal language ("for now", "temporarily") not covered | Add examples with that phrasing |
+| Low recall on `risk` | Risk language is subtle and varied | Add more examples of hedging language |
+
+After editing the prompt, re-run `eval classifier` and compare F1 scores. Track changes in a comment above the prompt constant so you have a history of what improved what.
+
+### Tracking agent/prompt quality over time
+
+The Trends view shows flag patterns across sessions. Use the agent and date filters to compare behavior before and after a system prompt change.
+
+What to look for:
+
+- **Rising workaround rate** -- your prompt is not giving the agent enough context to solve problems correctly
+- **High assumption rate on a specific task type** -- the agent lacks information it needs; add it to the system prompt
+- **Decisions clustering around the same choice** -- the agent has a default it keeps reverting to; decide if that default is correct and either accept it or explicitly redirect it
+- **False positive rate rising** -- the classifier prompt has drifted from your labeling behavior; run `eval classifier` and re-calibrate
+
+### The improvement loop
+
+```
+Run session
+    ↓
+Review flags in UI  ←──────────────────────┐
+    ↓                                       │
+eval classifier  →  read scores             │
+    ↓                                       │
+eval show  →  find specific misses and FPs  │
+    ↓                                       │
+Edit CLASSIFICATION_PROMPT                  │
+    ↓                                       │
+eval classifier  →  confirm F1 improved ────┘
+```
+
+Run this loop periodically rather than after every session. Ten or more newly reviewed flags between runs gives the metrics enough signal to move meaningfully.
 
 ## Data
 
