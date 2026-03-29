@@ -145,9 +145,12 @@ async function cmdStop() {
 }
 
 async function cmdEval(subcommand) {
-  if (subcommand !== 'classifier') {
+  const validSubcommands = ['classifier', 'show'];
+  if (!validSubcommands.includes(subcommand)) {
     console.error(`Unknown eval target: ${subcommand}`);
-    console.error('Usage: agent-feed eval classifier');
+    console.error('Usage:');
+    console.error('  agent-feed eval classifier   Precision/recall report');
+    console.error('  agent-feed eval show         Show missed flags and false positives');
     process.exit(1);
   }
 
@@ -164,7 +167,7 @@ async function cmdEval(subcommand) {
 
   const { Database } = await import('../storage/database.js');
   const { buildClassifier, validateClassifier } = await import('../classifier/index.js');
-  const { runClassifierEval, formatEvalReport } = await import('../eval.js');
+  const { runClassifierEval, getEvalExamples, formatEvalReport, formatEvalExamples } = await import('../eval.js');
 
   const db = new Database(dbPath);
   await db.init();
@@ -177,12 +180,19 @@ async function cmdEval(subcommand) {
 
   const classifierFn = buildClassifier(config.classifier);
 
-  console.log('Running classifier eval...');
-  const report = await runClassifierEval({ db, classifierFn });
-  await db.close();
-
-  console.log('');
-  console.log(formatEvalReport(report));
+  if (subcommand === 'classifier') {
+    console.log('Running classifier eval...');
+    const report = await runClassifierEval({ db, classifierFn });
+    await db.close();
+    console.log('');
+    console.log(formatEvalReport(report));
+  } else if (subcommand === 'show') {
+    console.log('Loading eval examples...');
+    const examples = await getEvalExamples({ db, classifierFn });
+    await db.close();
+    console.log('');
+    console.log(formatEvalExamples(examples));
+  }
 }
 
 // Parse CLI args
@@ -202,9 +212,10 @@ switch (command) {
     break;
   default:
     console.log('Usage:');
-    console.log('  agent-feed start           Start proxy, classifier, and UI in background');
-    console.log('  agent-feed start --verbose  Start in foreground with diagnostic logging');
-    console.log('  agent-feed stop             Stop all services');
-    console.log('  agent-feed eval classifier  Run classifier precision/recall eval');
+    console.log('  agent-feed start               Start proxy, classifier, and UI in background');
+    console.log('  agent-feed start --verbose      Start in foreground with diagnostic logging');
+    console.log('  agent-feed stop                 Stop all services');
+    console.log('  agent-feed eval classifier      Run classifier precision/recall eval');
+    console.log('  agent-feed eval show            Show missed flags and false positives');
     process.exit(command ? 1 : 0);
 }

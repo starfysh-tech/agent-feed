@@ -113,9 +113,121 @@ export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAM
   };
 }
 
+export async function getEvalExamples({ db, classifierFn } = {}) {
+  const sessions = await db.listSessions();
+  const samples = [];
+
+  for (const session of sessions) {
+    const records = await db.getSession(session.session_id);
+    for (const record of records) {
+      const flags = await db.getFlagsForRecord(record.id);
+      for (const flag of flags) {
+        if (flag.review_status === 'unreviewed') continue;
+        samples.push({
+          flagId: flag.id,
+          type: flag.type,
+          content: flag.content,
+          review_status: flag.review_status,
+          raw_response: record.raw_response,
+        });
+      }
+    }
+  }
+
+  const missed = [];
+  const false_positives = [];
+  let true_positive_count = 0;
+
+  for (const sample of samples) {
+    let content = sample.raw_response;
+    try {
+      const parsed = JSON.parse(sample.raw_response);
+      if (parsed.content) {
+        content = parsed.content
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('\n') || content;
+      }
+    } catch {}
+
+    let classifierFlags = [];
+    try {
+      const result = await classifierFn(content);
+      classifierFlags = result.flags ?? [];
+    } catch {}
+
+    const predicted = classifierFlags.some(f => f.type === sample.type);
+    const isPositive = sample.review_status !== 'false_positive';
+    const raw_snippet = content.slice(0, 120).replace(/\s+/g, ' ').trim();
+
+    if (isPositive && predicted) {
+      true_positive_count++;
+    } else if (isPositive && !predicted) {
+      // Classifier missed a real flag
+      missed.push({
+        type: sample.type,
+        content: sample.content,
+        raw_snippet,
+        review_status: sample.review_status,
+      });
+    } else if (!isPositive && predicted) {
+      // Classifier flagged something the reviewer marked false positive
+      false_positives.push({
+        type: sample.type,
+        content: sample.content,
+        raw_snippet,
+      });
+    }
+  }
+
+  return {
+    total_labeled: samples.length,
+    true_positive_count,
+    false_negative_count: missed.length,
+    false_positive_count: false_positives.length,
+    missed,
+    false_positives,
+  };
+}
+
+export function formatEvalExamples(examples) {
+  const lines = [];
+
+  lines.push(`Labeled: ${examples.total_labeled}  TP: ${examples.true_positive_count}  Missed: ${examples.false_negative_count}  FP: ${examples.false_positive_count}`);
+  lines.push('');
+
+  if (examples.missed.length) {
+    lines.push('── Missed flags (classifier should have found these) ────────────────');
+    for (const m of examples.missed) {
+      lines.push(`  [${m.type}] ${m.content}`);
+      lines.push(`  Response: "${m.raw_snippet}${m.raw_snippet.length >= 120 ? '...' : ''}"`);
+      lines.push('');
+    }
+  } else {
+    lines.push('── Missed flags ─────────────────────────────────────────────────────');
+    lines.push('  None -- classifier found all labeled positives.');
+    lines.push('');
+  }
+
+  if (examples.false_positives.length) {
+    lines.push('── False Positives (classifier flagged, reviewer rejected) ──────────');
+    for (const fp of examples.false_positives) {
+      lines.push(`  [${fp.type}] ${fp.content}`);
+      lines.push(`  Response: "${fp.raw_snippet}${fp.raw_snippet.length >= 120 ? '...' : ''}"`);
+      lines.push('');
+    }
+  } else {
+    lines.push('── False Positives ───────────────────────────────────────────────────');
+    lines.push('  None -- no false positives in labeled set.');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+
 export function formatEvalReport(report, date = new Date()) {
   const lines = [];
-  lines.push(`Classifier Eval -- ${date.toISOString().slice(0, 10)}`);
   lines.push(`Labeled samples: ${report.labeled_samples}`);
   lines.push('');
 
