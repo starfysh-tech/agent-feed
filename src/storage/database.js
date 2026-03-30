@@ -193,6 +193,20 @@ export class Database {
     this._persist();
   }
 
+  async bulkUpdateFlagReview(flagIds, reviewStatus) {
+    if (!VALID_REVIEW_STATUSES.includes(reviewStatus)) {
+      throw new Error(`Invalid review_status: ${reviewStatus}`);
+    }
+    if (!flagIds.length) return 0;
+    const placeholders = flagIds.map(() => '?').join(',');
+    const result = this.db.run(
+      `UPDATE flags SET review_status = ? WHERE id IN (${placeholders})`,
+      [reviewStatus, ...flagIds]
+    );
+    this._persist();
+    return result;
+  }
+
   async getTrends({ agent, repo, branch, dateFrom, dateTo } = {}) {
     // Build WHERE clause for records
     const conditions = [];
@@ -201,7 +215,7 @@ export class Database {
     if (repo)     { conditions.push('r.repo = ?');        params.push(repo); }
     if (branch)   { conditions.push('r.git_branch = ?');  params.push(branch); }
     if (dateFrom) { conditions.push('r.timestamp >= ?');  params.push(dateFrom); }
-    if (dateTo)   { conditions.push('r.timestamp <= ?');  params.push(dateTo); }
+    if (dateTo)   { conditions.push('r.timestamp <= ?');  params.push(dateTo.includes('T') ? dateTo : dateTo + 'T23:59:59.999Z'); }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
