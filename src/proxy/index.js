@@ -1,5 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
+import zlib from 'node:zlib';
 
 const SCRUBBED_HEADERS = ['authorization', 'x-api-key', 'x-goog-api-key'];
 
@@ -105,26 +106,43 @@ export class Proxy {
     const transport = useTls ? https : http;
 
     const upstreamReq = transport.request(options, (upstreamRes) => {
-      let responseBody = '';
-      upstreamRes.on('data', chunk => { responseBody += chunk; });
-      upstreamRes.on('end', () => {
-        // Forward response to original caller
-        res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
-        res.end(responseBody);
+      // Pipe raw bytes directly to client (preserves gzip/br encoding)
+      res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
+      upstreamRes.pipe(res);
 
-        // Fire capture callback asynchronously
-        setImmediate(() => {
-          this.onCapture({
-            timestamp,
-            host: targetHost,
-            path: forwardPath,
-            method: req.method,
-            requestHeaders: scrubbedHeaders,
-            rawRequest: scrubbedRequestBody,
-            rawResponse: responseBody,
-            statusCode: upstreamRes.statusCode,
+      // Separately accumulate raw bytes for capture (need to decompress for storage)
+      const chunks = [];
+      upstreamRes.on('data', chunk => { chunks.push(chunk); });
+      upstreamRes.on('end', () => {
+        const rawBuffer = Buffer.concat(chunks);
+        const encoding = upstreamRes.headers['content-encoding'];
+        const decode = encoding === 'gzip' ? zlib.gunzip
+          : encoding === 'br' ? zlib.brotliDecompress
+          : encoding === 'deflate' ? zlib.inflate
+          : null;
+
+        const emitCapture = (body) => {
+          setImmediate(() => {
+            this.onCapture({
+              timestamp,
+              host: targetHost,
+              path: forwardPath,
+              method: req.method,
+              requestHeaders: scrubbedHeaders,
+              rawRequest: scrubbedRequestBody,
+              rawResponse: body,
+              statusCode: upstreamRes.statusCode,
+            });
           });
-        });
+        };
+
+        if (decode) {
+          decode(rawBuffer, (err, decoded) => {
+            emitCapture(err ? rawBuffer.toString() : decoded.toString());
+          });
+        } else {
+          emitCapture(rawBuffer.toString());
+        }
       });
     });
 
