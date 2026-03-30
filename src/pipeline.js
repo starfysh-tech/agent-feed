@@ -47,8 +47,8 @@ export class Pipeline {
         const result = await this.classifierFn(content);
         responseSummary = result.response_summary ?? responseSummary;
         flags = result.flags ?? [];
-      } catch {
-        // classifier failure should not block storage
+      } catch (err) {
+        console.error('[pipeline] classifier error:', err.message ?? err);
       }
     }
 
