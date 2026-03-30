@@ -343,7 +343,7 @@ function renderTrends(data) {
   }).join('') : '<div style="font-size:12px;color:var(--text-muted)">No flags yet</div>';
 
   const bySessionHtml = data.by_session.length ? data.by_session.map(s =>
-    '<div class="trend-session-row" onclick="switchTab(\'sessions\');selectSession(' + JSON.stringify(s.session_id) + ')">' +
+    '<div class="trend-session-row" onclick="switchTab(&apos;sessions&apos;);selectSession(' + JSON.stringify(s.session_id) + ')">' +
     '<span class="trend-session-id">' + esc(s.session_id) + '</span>' +
     '<span class="trend-session-count">' + (s.flag_count || 0) + ' flags</span>' +
     '</div>'
