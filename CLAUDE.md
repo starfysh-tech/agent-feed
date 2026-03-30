@@ -28,11 +28,11 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 
 ### Request flow
 
-1. **Proxy** (`src/proxy/index.js`) — HTTP server with path-based routing. Requests to `/anthropic/...`, `/openai/...`, `/google/...` are forwarded to the corresponding upstream API over HTTPS (path prefix is stripped). Falls back to `x-forwarded-host` header for backward compat. On response completion, fires `onCapture` callback asynchronously via `setImmediate`. Scrubs auth headers and API key fields before persisting request data. `UPSTREAM_MAP` defines the provider→host mapping; the `upstreamMap` constructor param allows test injection.
+1. **Proxy** (`src/proxy/index.js`) — HTTP server with path-based routing. Requests to `/anthropic/...`, `/openai/...`, `/google/...` are forwarded to the corresponding upstream API over HTTPS (path prefix is stripped). Falls back to `x-forwarded-host` header for backward compat. Unrecognized routes return 404. Raw response bytes are piped directly to the client (preserving gzip/br encoding); a separate decompressed copy is accumulated for capture. Scrubs auth headers and API key fields before persisting request data. `UPSTREAM_MAP` defines the provider→host mapping; the `upstreamMap` constructor param allows test injection.
 
 2. **Pipeline** (`src/pipeline.js`) — Orchestrates the capture-to-storage flow. Selects the correct adapter by hostname, extracts session ID and content, runs the classifier, collects git context, then writes the record and flags to the database. Tracks per-session turn counts in memory.
 
-3. **Adapters** (`src/adapters/index.js`) — Per-agent extractors dispatched by `HOST_MAP` (hostname → adapter). Each adapter implements `extractSessionId`, `extractContent`, `extractModel`, `extractTokenCount`. Adding a new agent = adding a new adapter object and HOST_MAP entry.
+3. **Adapters** (`src/adapters/index.js`) — Per-agent extractors dispatched by `HOST_MAP` (hostname → adapter). Each adapter implements `extractSessionId`, `extractContent`, `extractModel`, `extractTokenCount`. The Claude adapter handles both JSON (non-streaming) and SSE (streaming) response formats via `parseSSEEvents()`. Adding a new agent = adding a new adapter object and HOST_MAP entry.
 
 4. **Classifier** (`src/classifier/index.js`) — Sends response text to a classification LLM. Supports Anthropic API and OpenAI-compatible APIs (Ollama, LM Studio). The classification prompt (`CLASSIFICATION_PROMPT`) is the primary tuning surface. `validateClassifierWithFallback` tries configured provider → Ollama → LM Studio → Anthropic API key in sequence.
 
@@ -51,6 +51,7 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 - **All state in `~/.agent-feed/`** — database, config, PID file, env file, logs
 - **Config is TOML** — loaded from `~/.agent-feed/config.toml`, deep-merged with defaults
 - **innerHTML with esc()** — The UI uses `innerHTML` for DOM updates. All dynamic values MUST pass through the `esc()` helper (line 293 of `src/ui/server.js`) which encodes `&`, `<`, `>`, `"`. Never use `innerHTML` with unsanitized data. For new UI code, prefer `textContent` when HTML structure isn't needed.
+- **escAttr() for onclick values** — Values embedded in HTML `onclick` attributes via `JSON.stringify` must use `escAttr()` (not raw `JSON.stringify`) to escape `"` as `&quot;`. The `buildHTML()` template literal does not preserve `\'` escapes.
 
 ### REST API endpoints
 

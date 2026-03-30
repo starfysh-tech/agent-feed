@@ -1,0 +1,17 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:18080/anthropic"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(node --test test/storage-batch.test.js)",
+      "Bash(node:*)",
+      "Read(//Users/randallnoval/.claude/skills/design-tree/design-tree/**)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s http://localhost:3000/api/sessions)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_console_messages",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__click",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_snapshot"
+    ]
+  }
+}
