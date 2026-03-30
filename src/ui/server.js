@@ -183,7 +183,7 @@ function renderSessionList() {
     const badgeText = unreviewed > 0 ? unreviewed + ' unreviewed' : 'reviewed';
     const date = new Date(s.latest_timestamp).toLocaleDateString();
     const active = s.session_id === activeSessionId ? ' active' : '';
-    return '<div class="session-item' + active + '" onclick="selectSession(' + JSON.stringify(s.session_id) + ')">' +
+    return '<div class="session-item' + active + '" onclick="selectSession(' + escAttr(s.session_id) + ')">' +
       '<div class="session-id">' + esc(s.session_id) + '</div>' +
       '<div class="session-meta"><span>' + esc(s.agent || '') + '</span><span>' + date + '</span>' + (s.repo ? '<span>' + esc(s.repo) + '</span>' : '') + '</div>' +
       '<div class="session-meta" style="margin-top:3px"><span class="session-badge ' + badgeClass + '">' + badgeText + '</span>' +
@@ -231,7 +231,7 @@ function renderTurn(record) {
     : '<div style="padding:10px 14px;font-size:12px;color:var(--text-muted)">No flags extracted</div>';
   return '<div class="turn-block" id="turn-' + esc(record.id) + '">' +
     '<div class="turn-header"><span class="turn-label">Turn ' + record.turn_index + ' &nbsp;&middot;&nbsp; ' + ts + '</span>' +
-    '<button class="raw-toggle" onclick="toggleRaw(' + JSON.stringify(record.id) + ', ' + JSON.stringify(activeSessionId) + ')">[ raw ]</button></div>' +
+    '<button class="raw-toggle" onclick="toggleRaw(' + escAttr(record.id) + ', ' + escAttr(activeSessionId) + ')">[ raw ]</button></div>' +
     '<div class="turn-summary">' + esc(record.response_summary) + '</div>' +
     flagsHtml +
     '<div id="raw-' + esc(record.id) + '" style="display:none"></div>' +
@@ -242,7 +242,7 @@ function renderFlag(flag) {
   const btns = ['accepted','needs_change','false_positive'].map(s => {
     const label = {accepted:'accept',needs_change:'needs change',false_positive:'false positive'}[s];
     const cls = flag.review_status === s ? ' active-' + s : '';
-    return '<button class="status-btn' + cls + '" onclick="setStatus(' + JSON.stringify(flag.id) + ',' + JSON.stringify(s) + ')">' + label + '</button>';
+    return '<button class="status-btn' + cls + '" onclick="setStatus(' + escAttr(flag.id) + ',' + escAttr(s) + ')">' + label + '</button>';
   }).join('');
   return '<div class="flag-card" id="flag-' + esc(flag.id) + '">' +
     '<div class="flag-header"><span class="flag-type type-' + esc(flag.type) + '">' + esc(flag.type) + '</span>' +
@@ -252,7 +252,7 @@ function renderFlag(flag) {
     '<div class="flag-notes">' +
     '<input type="text" id="note-' + esc(flag.id) + '" placeholder="Reviewer note..." value="' + esc(flag.reviewer_note || '') + '">' +
     '<input type="text" id="outcome-' + esc(flag.id) + '" placeholder="Outcome..." value="' + esc(flag.outcome || '') + '">' +
-    '<button class="save-btn" onclick="saveNotes(' + JSON.stringify(flag.id) + ')">save</button>' +
+    '<button class="save-btn" onclick="saveNotes(' + escAttr(flag.id) + ')">save</button>' +
     '</div></div>';
 }
 
@@ -293,6 +293,10 @@ async function toggleRaw(recordId, sessionId) {
 function esc(s) {
   if (s == null) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function escAttr(s) {
+  return JSON.stringify(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
 }
 
 $('filter-agent').addEventListener('change', loadSessions);
@@ -343,7 +347,7 @@ function renderTrends(data) {
   }).join('') : '<div style="font-size:12px;color:var(--text-muted)">No flags yet</div>';
 
   const bySessionHtml = data.by_session.length ? data.by_session.map(s =>
-    '<div class="trend-session-row" onclick="switchTab(&apos;sessions&apos;);selectSession(' + JSON.stringify(s.session_id) + ')">' +
+    '<div class="trend-session-row" onclick="switchTab(&apos;sessions&apos;);selectSession(' + escAttr(s.session_id) + ')">' +
     '<span class="trend-session-id">' + esc(s.session_id) + '</span>' +
     '<span class="trend-session-count">' + (s.flag_count || 0) + ' flags</span>' +
     '</div>'
