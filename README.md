@@ -28,7 +28,7 @@ Before a PR review, pull up the session that produced the branch and scan flagge
 ## How it works
 
 ```
-Agent → ANTHROPIC_BASE_URL=http://localhost:8080/anthropic → Proxy → api.anthropic.com
+Agent → ANTHROPIC_BASE_URL=http://localhost:18080/anthropic → Proxy → api.anthropic.com
                                                                ↓
                                                           Classifier (Haiku / local model)
                                                                ↓
@@ -83,9 +83,9 @@ After this, `agent-feed start` automatically sets the env vars and `agent-feed s
 If you prefer not to use the shell integration:
 
 ```bash
-export ANTHROPIC_BASE_URL=http://localhost:8080/anthropic
-export OPENAI_BASE_URL=http://localhost:8080/openai
-export GOOGLE_API_BASE_URL=http://localhost:8080/google
+export ANTHROPIC_BASE_URL=http://localhost:18080/anthropic
+export OPENAI_BASE_URL=http://localhost:18080/openai
+export GOOGLE_API_BASE_URL=http://localhost:18080/google
 ```
 
 ## CLI
@@ -104,7 +104,7 @@ Startup output confirms all services are healthy before detaching:
 
 ```
 Starting Agent Feed...
-  ✓ Proxy listening on :8080
+  ✓ Proxy listening on :18080
   ✓ Classifier ready (anthropic/claude-haiku-4-5-20251001)
   ✓ Web UI available at http://localhost:3000
   ✓ SQLite initialized at ~/.agent-feed/feed.db (1.2 MB)
@@ -119,7 +119,7 @@ Config lives at `~/.agent-feed/config.toml`. Created with defaults on first run.
 
 ```toml
 [proxy]
-port = 8080
+port = 18080
 
 [ui]
 port = 3000
@@ -336,9 +336,9 @@ API keys are never written to disk. Authorization headers are scrubbed from all 
 
 | Agent | Session ID source | Base URL env var |
 |---|---|---|
-| Claude Code | `id` field in response body | `ANTHROPIC_BASE_URL=http://localhost:8080/anthropic` |
-| Codex | `thread_id` from `thread.started` JSONL event | `OPENAI_BASE_URL=http://localhost:8080/openai` |
-| Gemini | Proxy-generated per connection | `GOOGLE_API_BASE_URL=http://localhost:8080/google` |
+| Claude Code | `id` field in response body | `ANTHROPIC_BASE_URL=http://localhost:18080/anthropic` |
+| Codex | `thread_id` from `thread.started` JSONL event | `OPENAI_BASE_URL=http://localhost:18080/openai` |
+| Gemini | Proxy-generated per connection | `GOOGLE_API_BASE_URL=http://localhost:18080/google` |
 
 Adding a new agent requires a small adapter in `src/adapters/index.js` with two methods: `extractSessionId` and `extractContent`.
 

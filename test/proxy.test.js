@@ -244,6 +244,16 @@ describe('Proxy', () => {
     assert.equal(parsed.id, 'msg_test123');
   });
 
+  it('returns 404 for unrecognized paths without x-forwarded-host', async () => {
+    const res = await proxyRequest(proxy.port, {
+      path: '/unknown/path',
+      body: { test: true },
+    });
+    assert.equal(res.status, 404);
+    const parsed = JSON.parse(res.body);
+    assert.ok(parsed.error.includes('Unknown route'));
+  });
+
   it('exports UPSTREAM_MAP with expected entries', () => {
     assert.ok(UPSTREAM_MAP['/anthropic']);
     assert.equal(UPSTREAM_MAP['/anthropic'].host, 'api.anthropic.com');

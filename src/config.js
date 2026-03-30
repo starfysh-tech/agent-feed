@@ -3,7 +3,7 @@ import TOML from 'toml';
 
 export const defaultConfig = {
   proxy: {
-    port: 8080,
+    port: 18080,
   },
   ui: {
     port: 3000,

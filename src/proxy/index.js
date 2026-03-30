@@ -67,16 +67,16 @@ export class Proxy {
       useTls = upstream.tls;
       forwardPath = req.url.slice(prefix.length) || '/';
     } else {
-      // Fallback: x-forwarded-host or host header (backward compat)
-      const hostHeader = req.headers['x-forwarded-host'] || req.headers['host'];
-      const protocol = req.headers['x-target-protocol'] || 'https';
+      // Fallback: only honor explicit x-forwarded-host (not bare host header)
+      const hostHeader = req.headers['x-forwarded-host'];
 
       if (!hostHeader) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'Missing target host' }));
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'Unknown route. Use /anthropic, /openai, or /google path prefix.' }));
         return;
       }
 
+      const protocol = req.headers['x-target-protocol'] || 'https';
       const [hostname, portStr] = hostHeader.split(':');
       targetHost = hostname;
       targetPort = portStr ? parseInt(portStr, 10) : (protocol === 'https' ? 443 : 80);
