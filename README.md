@@ -28,16 +28,16 @@ Before a PR review, pull up the session that produced the branch and scan flagge
 ## How it works
 
 ```
-Agent → ANTHROPIC_BASE_URL → Proxy → api.anthropic.com
-                                ↓
-                           Classifier (Haiku / local model)
-                                ↓
-                           SQLite (~/.agent-feed/feed.db)
-                                ↓
-                           Web UI (localhost:3000)
+Agent → ANTHROPIC_BASE_URL=http://localhost:8080/anthropic → Proxy → api.anthropic.com
+                                                               ↓
+                                                          Classifier (Haiku / local model)
+                                                               ↓
+                                                          SQLite (~/.agent-feed/feed.db)
+                                                               ↓
+                                                          Web UI (localhost:3000)
 ```
 
-The proxy forwards every request untouched and captures the response. After the response completes, a classifier extracts structured flag entries. Nothing blocks the agent.
+The proxy uses path-based routing to determine the upstream target. Requests to `/anthropic/...` are forwarded to `api.anthropic.com`, `/openai/...` to `api.openai.com`, and `/google/...` to `generativelanguage.googleapis.com`. The path prefix is stripped before forwarding, so the upstream API receives the original path. Responses are captured asynchronously and classified. Nothing blocks the agent.
 
 ## Requirements
 
@@ -55,30 +55,49 @@ npm install
 ## Quick start
 
 ```bash
-# Point your agents at the proxy
-export ANTHROPIC_BASE_URL=http://localhost:8080
-export OPENAI_BASE_URL=http://localhost:8080
-
-# Start everything
-node src/cli/index.js start
+# Start everything (daemonizes by default)
+agent-feed start
 
 # Open the UI
 open http://localhost:3000
 
 # Stop when done
-node src/cli/index.js stop
+agent-feed stop
 ```
 
-Add the `export` lines to your shell profile so agents always route through the proxy.
+### Shell integration (recommended)
+
+Set up automatic env var management so agents route through the proxy whenever it's running:
+
+```bash
+# One-time setup
+npm link
+echo 'eval "$(agent-feed shell-init)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+After this, `agent-feed start` automatically sets the env vars and `agent-feed stop` clears them. New terminal tabs pick up the vars if the proxy is running. If the proxy crashes, new shells auto-detect the dead PID and clean up.
+
+### Manual setup
+
+If you prefer not to use the shell integration:
+
+```bash
+export ANTHROPIC_BASE_URL=http://localhost:8080/anthropic
+export OPENAI_BASE_URL=http://localhost:8080/openai
+export GOOGLE_API_BASE_URL=http://localhost:8080/google
+```
 
 ## CLI
 
 ```
-node src/cli/index.js start                 Start proxy, classifier, and UI in background
-node src/cli/index.js start --verbose       Start in foreground with diagnostic logging
-node src/cli/index.js stop                  Stop all services
-node src/cli/index.js eval classifier       Precision/recall report across labeled flags
-node src/cli/index.js eval show             Show missed flags and false positives
+agent-feed start                 Start proxy, classifier, and UI (daemonizes)
+agent-feed start --verbose       Start in foreground with diagnostic logging
+agent-feed stop                  Stop all services
+agent-feed env                   Output shell export/unset commands based on proxy state
+agent-feed shell-init            Output shell integration snippet for ~/.zshrc
+agent-feed eval classifier       Precision/recall report across labeled flags
+agent-feed eval show             Show missed flags and false positives
 ```
 
 Startup output confirms all services are healthy before detaching:
@@ -317,9 +336,9 @@ API keys are never written to disk. Authorization headers are scrubbed from all 
 
 | Agent | Session ID source | Base URL env var |
 |---|---|---|
-| Claude Code | `id` field in response body | `ANTHROPIC_BASE_URL` |
-| Codex | `thread_id` from `thread.started` JSONL event | `OPENAI_BASE_URL` |
-| Gemini | Proxy-generated per connection | `GOOGLE_API_BASE_URL` (if supported) |
+| Claude Code | `id` field in response body | `ANTHROPIC_BASE_URL=http://localhost:8080/anthropic` |
+| Codex | `thread_id` from `thread.started` JSONL event | `OPENAI_BASE_URL=http://localhost:8080/openai` |
+| Gemini | Proxy-generated per connection | `GOOGLE_API_BASE_URL=http://localhost:8080/google` |
 
 Adding a new agent requires a small adapter in `src/adapters/index.js` with two methods: `extractSessionId` and `extractContent`.
 
@@ -330,7 +349,7 @@ src/
   adapters/       Per-agent session ID and content extraction
   classifier/     LLM classification prompt and provider adapters
   cli/            start / stop / eval commands
-  proxy/          Transparent HTTP proxy with capture callback
+  proxy/          Path-based proxy with HTTPS forwarding and capture callback
   storage/        SQLite database with full schema
   ui/             HTTP server with REST API and HTML interface
   app.js          Wires all components together
@@ -339,7 +358,7 @@ src/
   git.js          Git context collector (branch, commit, repo)
   pipeline.js     Capture → adapter → classifier → db write
 test/
-  *.test.js       65 tests covering all modules
+  *.test.js       83 tests covering all modules
 ```
 
 ## Backlog
