@@ -264,6 +264,49 @@ async function cmdEval(subcommand) {
   }
 }
 
+function cmdEnv() {
+  const pid = readPid();
+  const running = pid && isProcessRunning(pid);
+
+  if (running && fs.existsSync(ENV_FILE)) {
+    process.stdout.write(fs.readFileSync(ENV_FILE, 'utf8'));
+  } else {
+    // Cleanup stale state
+    if (pid && !isProcessRunning(pid)) {
+      clearPid();
+      clearEnvFile();
+    }
+    console.log('unset ANTHROPIC_BASE_URL');
+    console.log('unset OPENAI_BASE_URL');
+    console.log('unset GOOGLE_API_BASE_URL');
+  }
+}
+
+function cmdShellInit() {
+  const snippet = `# agent-feed shell integration
+agent-feed() {
+  command agent-feed "$@"
+  local rc=$?
+  if [[ "$1" == "start" || "$1" == "stop" ]]; then
+    eval "$(command agent-feed env)"
+  fi
+  return $rc
+}
+
+# Auto-source env if proxy is running
+if [[ -f ~/.agent-feed/env ]]; then
+  _af_pid=""
+  [[ -f ~/.agent-feed/agent-feed.pid ]] && _af_pid=$(cat ~/.agent-feed/agent-feed.pid 2>/dev/null)
+  if [[ -n "$_af_pid" ]] && kill -0 "$_af_pid" 2>/dev/null; then
+    source ~/.agent-feed/env
+  else
+    rm -f ~/.agent-feed/env ~/.agent-feed/agent-feed.pid
+  fi
+  unset _af_pid
+fi`;
+  console.log(snippet);
+}
+
 // Parse CLI args
 const args = process.argv.slice(2);
 const command = args[0];
@@ -280,6 +323,12 @@ switch (command) {
   case 'eval':
     await cmdEval(args[1]);
     break;
+  case 'env':
+    cmdEnv();
+    break;
+  case 'shell-init':
+    cmdShellInit();
+    break;
   default:
     console.log('Usage:');
     console.log('  agent-feed start               Start proxy, classifier, and UI in background');
@@ -287,5 +336,7 @@ switch (command) {
     console.log('  agent-feed stop                 Stop all services');
     console.log('  agent-feed eval classifier      Run classifier precision/recall eval');
     console.log('  agent-feed eval show            Show missed flags and false positives');
+    console.log('  agent-feed env                  Print shell env vars (source with eval)');
+    console.log('  agent-feed shell-init           Print shell integration snippet for .zshrc');
     process.exit(command ? 1 : 0);
 }
