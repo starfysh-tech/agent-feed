@@ -13,11 +13,13 @@ npm test                    # run all tests (node --test)
 npm run test:watch          # run tests in watch mode
 node --test test/foo.test.js  # run a single test file
 
-node src/cli/index.js start           # start proxy + classifier + UI
-node src/cli/index.js start --verbose # foreground with logging
-node src/cli/index.js stop            # stop all services
-node src/cli/index.js eval classifier # precision/recall report
-node src/cli/index.js eval show       # show missed flags and FPs
+agent-feed start              # start proxy + classifier + UI (daemonizes)
+agent-feed start --verbose    # foreground with logging
+agent-feed stop               # stop all services
+agent-feed env                # output shell export/unset commands
+agent-feed shell-init         # output shell integration snippet for .zshrc
+agent-feed eval classifier    # precision/recall report
+agent-feed eval show          # show missed flags and FPs
 ```
 
 ## Architecture
@@ -26,7 +28,7 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 
 ### Request flow
 
-1. **Proxy** (`src/proxy/index.js`) — HTTP server that forwards requests to upstream APIs unchanged. On response completion, fires `onCapture` callback asynchronously via `setImmediate`. Scrubs auth headers and API key fields before persisting request data.
+1. **Proxy** (`src/proxy/index.js`) — HTTP server with path-based routing. Requests to `/anthropic/...`, `/openai/...`, `/google/...` are forwarded to the corresponding upstream API over HTTPS (path prefix is stripped). Falls back to `x-forwarded-host` header for backward compat. On response completion, fires `onCapture` callback asynchronously via `setImmediate`. Scrubs auth headers and API key fields before persisting request data. `UPSTREAM_MAP` defines the provider→host mapping; the `upstreamMap` constructor param allows test injection.
 
 2. **Pipeline** (`src/pipeline.js`) — Orchestrates the capture-to-storage flow. Selects the correct adapter by hostname, extracts session ID and content, runs the classifier, collects git context, then writes the record and flags to the database. Tracks per-session turn counts in memory.
 
@@ -46,7 +48,7 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 - **No build step** — plain Node.js, no transpilation, no bundler
 - **sql.js not better-sqlite3** — despite both being in package.json, the codebase uses `sql.js` (pure JS SQLite). `better-sqlite3` is listed but unused.
 - **Classifier is fire-and-forget** — classifier failures don't block storage (`pipeline.js:47-53`)
-- **All state in `~/.agent-feed/`** — database, config, PID file, logs
+- **All state in `~/.agent-feed/`** — database, config, PID file, env file, logs
 - **Config is TOML** — loaded from `~/.agent-feed/config.toml`, deep-merged with defaults
 - **innerHTML with esc()** — The UI uses `innerHTML` for DOM updates. All dynamic values MUST pass through the `esc()` helper (line 293 of `src/ui/server.js`) which encodes `&`, `<`, `>`, `"`. Never use `innerHTML` with unsanitized data. For new UI code, prefer `textContent` when HTML structure isn't needed.
 

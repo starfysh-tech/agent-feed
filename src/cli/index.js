@@ -53,7 +53,9 @@ function writeEnvFile(port) {
 }
 
 function clearEnvFile() {
-  try { fs.unlinkSync(ENV_FILE); } catch {}
+  try { fs.unlinkSync(ENV_FILE); } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
 }
 
 function isProcessRunning(pid) {
@@ -113,8 +115,16 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
     });
 
     const pid = readPid();
-    writeEnvFile(config.proxy.port);
-    console.log(`  ✓ Proxy listening on :${config.proxy.port}`);
+    // Env file is written by the daemon child (which knows the actual bound port).
+    // Poll for it so we can report the real port (matters when config uses port 0).
+    const envStart = Date.now();
+    while (!fs.existsSync(ENV_FILE) && Date.now() - envStart < 3000) {
+      await new Promise(r => setTimeout(r, 50));
+    }
+    const envContent = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8') : '';
+    const portMatch = envContent.match(/localhost:(\d+)\//);
+    const actualPort = portMatch ? portMatch[1] : config.proxy.port;
+    console.log(`  ✓ Proxy listening on :${actualPort}`);
     console.log(`  ✓ Web UI available at http://localhost:${config.ui.port}`);
     console.log(`  ✓ Environment file written (~/.agent-feed/env)`);
     console.log(`Agent Feed running (PID ${pid}), logs: ${LOG_FILE}`);
