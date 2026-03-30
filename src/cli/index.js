@@ -37,7 +37,14 @@ function readPid() {
 }
 
 function clearPid() {
-  if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE);
+  try { fs.unlinkSync(PID_FILE); } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+}
+
+function clearState() {
+  clearPid();
+  clearEnvFile();
 }
 
 function writeEnvFile(port) {
@@ -161,6 +168,17 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
   writeEnvFile(status.proxyPort);
   log(`started -- proxy :${status.proxyPort}, ui :${status.uiPort}`);
 
+  const shutdown = async () => {
+    if (verbose) console.log('\nStopping Agent Feed...');
+    log('shutting down');
+    try { await app.stop(); } finally {
+      clearState();
+      process.exit(0);
+    }
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+
   if (verbose) {
     console.log('Starting Agent Feed...');
     console.log(`  ✓ Proxy listening on :${status.proxyPort}`);
@@ -170,33 +188,9 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
     console.log('Agent Feed ready.');
     console.log('\n[verbose] Logging to', LOG_FILE);
     console.log('[verbose] Press Ctrl+C to stop\n');
-
-    const shutdown = async () => {
-      console.log('\nStopping Agent Feed...');
-      log('shutting down (verbose)');
-      try { await app.stop(); } finally {
-        clearPid();
-        clearEnvFile();
-        process.exit(0);
-      }
-    };
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
     process.stdin.resume();
   } else {
-    // daemon mode: log startup details to file, keep process alive
     log(`proxy :${status.proxyPort}, classifier: ${classifierLabel}${fallbackNote}, ui :${status.uiPort}, db: ${dbSize}`);
-
-    const shutdown = async () => {
-      log('shutting down');
-      try { await app.stop(); } finally {
-        clearPid();
-        clearEnvFile();
-        process.exit(0);
-      }
-    };
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
   }
 }
 
@@ -208,15 +202,13 @@ async function cmdStop() {
   }
   if (!isProcessRunning(pid)) {
     console.error(`Agent Feed process (PID ${pid}) is not running -- cleaning up`);
-    clearPid();
-    clearEnvFile();
+    clearState();
     process.exit(0);
   }
   try {
     process.kill(pid, 'SIGTERM');
     console.log(`Agent Feed stopped (PID ${pid})`);
-    clearPid();
-    clearEnvFile();
+    clearState();
   } catch (err) {
     console.error(`Failed to stop Agent Feed: ${err.message}`);
     process.exit(1);
@@ -283,8 +275,7 @@ function cmdEnv() {
   } else {
     // Cleanup stale state
     if (pid && !isProcessRunning(pid)) {
-      clearPid();
-      clearEnvFile();
+      clearState();
     }
     console.log('unset ANTHROPIC_BASE_URL');
     console.log('unset OPENAI_BASE_URL');

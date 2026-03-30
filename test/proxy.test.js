@@ -3,19 +3,14 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { Proxy, UPSTREAM_MAP } from '../src/proxy/index.js';
 
-// Helper to make a request through the proxy using x-forwarded-host (backward compat)
-function makeRequest(proxyPort, targetPort, path = '/', body = null) {
+function proxyRequest(proxyPort, { path = '/', body = null, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'localhost',
       port: proxyPort,
       path,
       method: body ? 'POST' : 'GET',
-      headers: {
-        'x-forwarded-host': `localhost:${targetPort}`,
-        'content-type': 'application/json',
-        'x-target-protocol': 'http',
-      },
+      headers: { 'content-type': 'application/json', ...headers },
     };
     const req = http.request(options, res => {
       let data = '';
@@ -28,27 +23,18 @@ function makeRequest(proxyPort, targetPort, path = '/', body = null) {
   });
 }
 
-// Helper to make a request through the proxy using path-prefix routing
-function makePathPrefixRequest(proxyPort, prefix, path = '/', body = null) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'localhost',
-      port: proxyPort,
-      path: prefix + path,
-      method: body ? 'POST' : 'GET',
-      headers: {
-        'content-type': 'application/json',
-      },
-    };
-    const req = http.request(options, res => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
-    });
-    req.on('error', reject);
-    if (body) req.write(JSON.stringify(body));
-    req.end();
+// Backward-compat helper using x-forwarded-host
+function makeRequest(proxyPort, targetPort, path = '/', body = null) {
+  return proxyRequest(proxyPort, {
+    path,
+    body,
+    headers: { 'x-forwarded-host': `localhost:${targetPort}`, 'x-target-protocol': 'http' },
   });
+}
+
+// Path-prefix routing helper
+function makePathPrefixRequest(proxyPort, prefix, path = '/', body = null) {
+  return proxyRequest(proxyPort, { path: prefix + path, body });
 }
 
 describe('Proxy', () => {

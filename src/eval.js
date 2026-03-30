@@ -1,5 +1,19 @@
 const MIN_SAMPLES_DEFAULT = 5;
 
+function extractTextContent(rawResponse) {
+  try {
+    const parsed = JSON.parse(rawResponse);
+    if (parsed.content) {
+      return parsed.content
+        .filter(b => b.type === 'text')
+        .map(b => b.text)
+        .join('\n') || rawResponse;
+    }
+    if (typeof parsed === 'string') return parsed;
+  } catch { /* not JSON — use as-is */ }
+  return rawResponse;
+}
+
 async function collectLabeledSamples(db) {
   const sessions = await db.listSessions();
   const samples = [];
@@ -41,19 +55,7 @@ export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAM
   // Re-run classifier on each sample's raw response
   const results = [];
   for (const sample of samples) {
-    let content = sample.raw_response;
-    try {
-      const parsed = JSON.parse(sample.raw_response);
-      // Extract text content if it looks like an API response
-      if (parsed.content) {
-        content = parsed.content
-          .filter(b => b.type === 'text')
-          .map(b => b.text)
-          .join('\n') || content;
-      } else if (typeof parsed === 'string') {
-        content = parsed;
-      }
-    } catch { /* raw_response is not JSON — use as-is */ }
+    const content = extractTextContent(sample.raw_response);
 
     let classifierFlags = [];
     try {
@@ -127,16 +129,7 @@ export async function getEvalExamples({ db, classifierFn } = {}) {
   let true_positive_count = 0;
 
   for (const sample of samples) {
-    let content = sample.raw_response;
-    try {
-      const parsed = JSON.parse(sample.raw_response);
-      if (parsed.content) {
-        content = parsed.content
-          .filter(b => b.type === 'text')
-          .map(b => b.text)
-          .join('\n') || content;
-      }
-    } catch { /* raw_response is not JSON — use as-is */ }
+    const content = extractTextContent(sample.raw_response);
 
     let classifierFlags = [];
     try {

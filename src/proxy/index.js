@@ -22,7 +22,7 @@ export class Proxy {
     this._configPort = port;
     this.port = null;
     this.onCapture = onCapture;
-    this._upstreamMap = upstreamMap;
+    this._upstreamEntries = Object.entries(upstreamMap);
     this._server = null;
   }
 
@@ -58,8 +58,7 @@ export class Proxy {
   _forwardRequest(req, requestBody, res) {
     let targetHost, targetPort, useTls, forwardPath;
 
-    // Check for path-prefix routing
-    const prefixMatch = Object.entries(this._upstreamMap).find(([prefix]) => req.url.startsWith(prefix));
+    const prefixMatch = this._upstreamEntries.find(([prefix]) => req.url.startsWith(prefix));
 
     if (prefixMatch) {
       const [prefix, upstream] = prefixMatch;

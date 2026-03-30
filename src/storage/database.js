@@ -67,9 +67,7 @@ export class Database {
   async init() {
     const SQL = await initSqlJs();
     const dir = path.dirname(this.dbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+    fs.mkdirSync(dir, { recursive: true });
     if (fs.existsSync(this.dbPath)) {
       const data = fs.readFileSync(this.dbPath);
       this.db = new SQL.Database(data);
