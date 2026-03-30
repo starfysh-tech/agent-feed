@@ -54,6 +54,54 @@ describe('Claude adapter', () => {
   });
 });
 
+describe('Claude adapter (SSE streaming)', () => {
+  let adapter;
+
+  before(() => {
+    adapter = getAdapter('api.anthropic.com');
+  });
+
+  const sseBody = [
+    'event: message_start',
+    'data: {"type":"message_start","message":{"id":"msg_sse_001","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-6","usage":{"input_tokens":50,"output_tokens":0}}}',
+    '',
+    'event: content_block_start',
+    'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+    '',
+    'event: content_block_delta',
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
+    '',
+    'event: content_block_delta',
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}',
+    '',
+    'event: content_block_stop',
+    'data: {"type":"content_block_stop","index":0}',
+    '',
+    'event: message_delta',
+    'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":12}}',
+    '',
+    'event: message_stop',
+    'data: {"type":"message_stop"}',
+    '',
+  ].join('\n');
+
+  it('extracts session id from SSE stream', () => {
+    assert.equal(adapter.extractSessionId(sseBody, {}), 'msg_sse_001');
+  });
+
+  it('extracts content from SSE content_block_delta events', () => {
+    assert.equal(adapter.extractContent(sseBody), 'Hello world');
+  });
+
+  it('extracts model from SSE message_start event', () => {
+    assert.equal(adapter.extractModel(sseBody), 'claude-sonnet-4-6');
+  });
+
+  it('extracts token count from SSE message_start + message_delta', () => {
+    assert.equal(adapter.extractTokenCount(sseBody), 62); // 50 input + 12 output
+  });
+});
+
 describe('Codex adapter', () => {
   let adapter;
 

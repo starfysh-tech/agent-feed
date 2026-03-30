@@ -5,37 +5,54 @@ export const AGENTS = {
   UNKNOWN: 'unknown',
 };
 
+function parseSSEEvents(body) {
+  const events = [];
+  for (const block of body.split('\n\n')) {
+    const dataLine = block.split('\n').find(l => l.startsWith('data: '));
+    if (!dataLine) continue;
+    try { events.push(JSON.parse(dataLine.slice(6))); } catch { /* skip malformed */ }
+  }
+  return events;
+}
+
+function isSSE(body) {
+  return body.startsWith('event:') || body.startsWith('data:');
+}
+
 const claudeAdapter = {
   name: AGENTS.CLAUDE,
 
   extractSessionId(body) {
-    try {
-      const parsed = JSON.parse(body);
-      return parsed.id ?? null;
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(body).id ?? null; } catch {}
+    if (!isSSE(body)) return null;
+    const events = parseSSEEvents(body);
+    const start = events.find(e => e.type === 'message_start');
+    return start?.message?.id ?? null;
   },
 
   extractContent(body) {
     try {
       const parsed = JSON.parse(body);
       const parts = parsed.content ?? [];
-      return parts
-        .filter(p => p.type === 'text')
-        .map(p => p.text)
-        .join('\n') || null;
-    } catch {
-      return null;
+      return parts.filter(p => p.type === 'text').map(p => p.text).join('\n') || null;
+    } catch {}
+    if (!isSSE(body)) return null;
+    const events = parseSSEEvents(body);
+    const textChunks = [];
+    for (const e of events) {
+      if (e.type === 'content_block_delta' && e.delta?.type === 'text_delta') {
+        textChunks.push(e.delta.text);
+      }
     }
+    return textChunks.join('') || null;
   },
 
   extractModel(body) {
-    try {
-      return JSON.parse(body).model ?? null;
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(body).model ?? null; } catch {}
+    if (!isSSE(body)) return null;
+    const events = parseSSEEvents(body);
+    const start = events.find(e => e.type === 'message_start');
+    return start?.message?.model ?? null;
   },
 
   extractTokenCount(body) {
@@ -43,9 +60,14 @@ const claudeAdapter = {
       const parsed = JSON.parse(body);
       const usage = parsed.usage ?? {};
       return (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0) || null;
-    } catch {
-      return null;
-    }
+    } catch {}
+    if (!isSSE(body)) return null;
+    const events = parseSSEEvents(body);
+    const start = events.find(e => e.type === 'message_start');
+    const delta = events.find(e => e.type === 'message_delta');
+    const inputTokens = start?.message?.usage?.input_tokens ?? 0;
+    const outputTokens = delta?.usage?.output_tokens ?? 0;
+    return (inputTokens + outputTokens) || null;
   },
 };
 
