@@ -36,7 +36,7 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 
 4. **Classifier** (`src/classifier/index.js`) — Sends response text to a classification LLM. Supports Anthropic API and OpenAI-compatible APIs (Ollama, LM Studio). The classification prompt (`CLASSIFICATION_PROMPT`) is the primary tuning surface. `validateClassifierWithFallback` tries configured provider → Ollama → LM Studio → Anthropic API key in sequence.
 
-5. **Database** (`src/storage/database.js`) — sql.js (in-process SQLite). Two tables: `records` (captured responses with git context) and `flags` (extracted items with review state). Persists to disk after every write via `_persist()`.
+5. **Database** (`src/storage/database.js`) — better-sqlite3 (native SQLite). Two tables: `records` (captured responses with git context) and `flags` (extracted items with review state). Uses WAL mode and `busy_timeout = 5000` for safe concurrent access (daemon + CLI eval).
 
 6. **UI** (`src/ui/server.js`) — Single-file HTTP server serving a self-contained HTML/CSS/JS page plus REST API endpoints. No build step, no bundler, no framework. The entire UI is returned from `buildHTML()`.
 
@@ -46,7 +46,7 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 
 - **ESM-only** — `"type": "module"` in package.json, all imports use `.js` extensions
 - **No build step** — plain Node.js, no transpilation, no bundler
-- **sql.js not better-sqlite3** — despite both being in package.json, the codebase uses `sql.js` (pure JS SQLite). `better-sqlite3` is listed but unused.
+- **better-sqlite3 not sql.js** — native SQLite with disk-backed storage, WAL mode for concurrent access. The `Database` class methods are `async` for interface compatibility but execute synchronously.
 - **Classifier is fire-and-forget** — classifier failures don't block storage (`pipeline.js:47-53`)
 - **All state in `~/.agent-feed/`** — database, config, PID file, env file, logs
 - **Config is TOML** — loaded from `~/.agent-feed/config.toml`, deep-merged with defaults
@@ -77,3 +77,7 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 - All tests are in `test/*.test.js`
 - Tests construct components directly with mocked dependencies (fake fetch, in-memory DB)
 - No external test framework or assertion library beyond `node:assert`
+
+## Conventions
+
+- **TODO.md** — Unrelated observations found during work (bugs, tech debt, improvements) should be added to `TODO.md` rather than implemented inline or silently skipped.

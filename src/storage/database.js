@@ -1,4 +1,4 @@
-import initSqlJs from 'sql.js';
+import BetterSqlite3 from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -65,27 +65,16 @@ export class Database {
   }
 
   async init() {
-    const SQL = await initSqlJs();
     const dir = path.dirname(this.dbPath);
     fs.mkdirSync(dir, { recursive: true });
-    if (fs.existsSync(this.dbPath)) {
-      const data = fs.readFileSync(this.dbPath);
-      this.db = new SQL.Database(data);
-    } else {
-      this.db = new SQL.Database();
-    }
-    this.db.run(SCHEMA);
-    this._persist();
-  }
-
-  _persist() {
-    const data = this.db.export();
-    fs.writeFileSync(this.dbPath, Buffer.from(data));
+    this.db = new BetterSqlite3(this.dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
+    this.db.exec(SCHEMA);
   }
 
   async close() {
     if (this.db) {
-      this._persist();
       this.db.close();
       this.db = null;
     }
@@ -93,7 +82,7 @@ export class Database {
 
   async insertRecord(record) {
     const id = randomUUID();
-    this.db.run(
+    this.db.prepare(
       `INSERT INTO records (
         id, timestamp, agent, agent_version, session_id, turn_index,
         repo, working_directory, git_branch, git_commit,
@@ -104,27 +93,25 @@ export class Database {
         ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?
-      )`,
-      [
-        id,
-        record.timestamp,
-        record.agent,
-        record.agent_version ?? null,
-        record.session_id,
-        record.turn_index ?? 1,
-        record.repo ?? null,
-        record.working_directory,
-        record.git_branch ?? null,
-        record.git_commit ?? null,
-        record.request_summary ?? null,
-        record.response_summary,
-        record.raw_request ?? null,
-        record.raw_response,
-        record.token_count ?? null,
-        record.model,
-      ]
+      )`
+    ).run(
+      id,
+      record.timestamp,
+      record.agent,
+      record.agent_version ?? null,
+      record.session_id,
+      record.turn_index ?? 1,
+      record.repo ?? null,
+      record.working_directory,
+      record.git_branch ?? null,
+      record.git_commit ?? null,
+      record.request_summary ?? null,
+      record.response_summary,
+      record.raw_request ?? null,
+      record.raw_response,
+      record.token_count ?? null,
+      record.model,
     );
-    this._persist();
     return id;
   }
 
@@ -133,26 +120,21 @@ export class Database {
       throw new Error(`Invalid flag type: ${flag.type}. Must be one of: ${VALID_FLAG_TYPES.join(', ')}`);
     }
     const id = randomUUID();
-    this.db.run(
+    this.db.prepare(
       `INSERT INTO flags (id, record_id, type, content, confidence, review_status)
-       VALUES (?, ?, ?, ?, ?, 'unreviewed')`,
-      [id, flag.record_id, flag.type, flag.content, flag.confidence]
-    );
-    this._persist();
+       VALUES (?, ?, ?, ?, ?, 'unreviewed')`
+    ).run(id, flag.record_id, flag.type, flag.content, flag.confidence);
     return id;
   }
 
   async getSession(sessionId) {
-    const result = this.db.exec(
-      `SELECT * FROM records WHERE session_id = ? ORDER BY turn_index ASC`,
-      [sessionId]
-    );
-    if (!result.length) return [];
-    return this._rowsToObjects(result[0]);
+    return this.db.prepare(
+      `SELECT * FROM records WHERE session_id = ? ORDER BY turn_index ASC`
+    ).all(sessionId);
   }
 
   async listSessions() {
-    const result = this.db.exec(
+    return this.db.prepare(
       `SELECT
         session_id,
         agent,
@@ -164,33 +146,26 @@ export class Database {
        FROM records
        GROUP BY session_id
        ORDER BY latest_timestamp DESC`
-    );
-    if (!result.length) return [];
-    return this._rowsToObjects(result[0]);
+    ).all();
   }
 
   async getFlagsForRecord(recordId) {
-    const result = this.db.exec(
-      `SELECT * FROM flags WHERE record_id = ?`,
-      [recordId]
-    );
-    if (!result.length) return [];
-    return this._rowsToObjects(result[0]);
+    return this.db.prepare(
+      `SELECT * FROM flags WHERE record_id = ?`
+    ).all(recordId);
   }
 
   async updateFlagReview(flagId, { review_status, reviewer_note, outcome }) {
     if (review_status && !VALID_REVIEW_STATUSES.includes(review_status)) {
       throw new Error(`Invalid review_status: ${review_status}`);
     }
-    this.db.run(
+    this.db.prepare(
       `UPDATE flags SET
         review_status = COALESCE(?, review_status),
         reviewer_note = COALESCE(?, reviewer_note),
         outcome = COALESCE(?, outcome)
-       WHERE id = ?`,
-      [review_status ?? null, reviewer_note ?? null, outcome ?? null, flagId]
-    );
-    this._persist();
+       WHERE id = ?`
+    ).run(review_status ?? null, reviewer_note ?? null, outcome ?? null, flagId);
   }
 
   async bulkUpdateFlagReview(flagIds, reviewStatus) {
@@ -199,12 +174,10 @@ export class Database {
     }
     if (!flagIds.length) return 0;
     const placeholders = flagIds.map(() => '?').join(',');
-    const result = this.db.run(
-      `UPDATE flags SET review_status = ? WHERE id IN (${placeholders})`,
-      [reviewStatus, ...flagIds]
-    );
-    this._persist();
-    return result;
+    const result = this.db.prepare(
+      `UPDATE flags SET review_status = ? WHERE id IN (${placeholders})`
+    ).run(reviewStatus, ...flagIds);
+    return result.changes;
   }
 
   async getTrends({ agent, repo, branch, dateFrom, dateTo } = {}) {
@@ -220,34 +193,24 @@ export class Database {
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
     // Total flags
-    const totalResult = this.db.exec(
-      `SELECT COUNT(f.id) as total FROM flags f JOIN records r ON f.record_id = r.id ${where}`,
-      params
-    );
-    const total_flags = totalResult[0]?.values[0]?.[0] ?? 0;
+    const totalRow = this.db.prepare(
+      `SELECT COUNT(f.id) as total FROM flags f JOIN records r ON f.record_id = r.id ${where}`
+    ).get(...params);
+    const total_flags = totalRow?.total ?? 0;
 
     // By type with false_positive_rate
-    const byTypeResult = this.db.exec(
+    const by_type = this.db.prepare(
       `SELECT
         f.type,
         COUNT(f.id) as count,
-        SUM(CASE WHEN f.review_status = 'false_positive' THEN 1 ELSE 0 END) as fp_count
+        CAST(SUM(CASE WHEN f.review_status = 'false_positive' THEN 1 ELSE 0 END) AS REAL) / NULLIF(COUNT(f.id), 0) as false_positive_rate
        FROM flags f JOIN records r ON f.record_id = r.id ${where}
        GROUP BY f.type
-       ORDER BY count DESC`,
-      params
-    );
-
-    const by_type = byTypeResult.length
-      ? this._rowsToObjects(byTypeResult[0]).map(row => ({
-          type: row.type,
-          count: row.count,
-          false_positive_rate: row.count > 0 ? row.fp_count / row.count : 0,
-        }))
-      : [];
+       ORDER BY count DESC`
+    ).all(...params);
 
     // By session
-    const bySessionResult = this.db.exec(
+    const by_session = this.db.prepare(
       `SELECT
         r.session_id,
         r.agent,
@@ -257,19 +220,14 @@ export class Database {
         COUNT(f.id) as flag_count
        FROM records r LEFT JOIN flags f ON f.record_id = r.id ${where}
        GROUP BY r.session_id
-       ORDER BY latest_timestamp DESC`,
-      params
-    );
-
-    const by_session = bySessionResult.length
-      ? this._rowsToObjects(bySessionResult[0])
-      : [];
+       ORDER BY latest_timestamp DESC`
+    ).all(...params);
 
     return { total_flags, by_type, by_session };
   }
 
   async getSessionFlagCounts() {
-    const result = this.db.exec(
+    return this.db.prepare(
       `SELECT
         r.session_id,
         COUNT(f.id) as total_flags,
@@ -277,9 +235,7 @@ export class Database {
        FROM records r
        LEFT JOIN flags f ON f.record_id = r.id
        GROUP BY r.session_id`
-    );
-    if (!result.length) return [];
-    return this._rowsToObjects(result[0]);
+    ).all();
   }
 
   async getRecordsWithFlags(sessionId) {
@@ -287,11 +243,9 @@ export class Database {
     if (!records.length) return [];
     const recordIds = records.map(r => r.id);
     const placeholders = recordIds.map(() => '?').join(',');
-    const flagResult = this.db.exec(
-      `SELECT * FROM flags WHERE record_id IN (${placeholders})`,
-      recordIds
-    );
-    const allFlags = flagResult.length ? this._rowsToObjects(flagResult[0]) : [];
+    const allFlags = this.db.prepare(
+      `SELECT * FROM flags WHERE record_id IN (${placeholders})`
+    ).all(...recordIds);
     const flagsByRecord = new Map();
     for (const flag of allFlags) {
       if (!flagsByRecord.has(flag.record_id)) flagsByRecord.set(flag.record_id, []);
@@ -304,13 +258,7 @@ export class Database {
   }
 
   async getDbSizeBytes() {
-    if (!fs.existsSync(this.dbPath)) return 0;
-    return fs.statSync(this.dbPath).size;
-  }
-
-  _rowsToObjects({ columns, values }) {
-    return values.map(row =>
-      Object.fromEntries(columns.map((col, i) => [col, row[i]]))
-    );
+    try { return fs.statSync(this.dbPath).size; }
+    catch { return 0; }
   }
 }
