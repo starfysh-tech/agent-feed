@@ -179,6 +179,33 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  // WHY: Zero uncaughtException/unhandledRejection handlers exist in this codebase.
+  // Any unhandled error kills the process with no cleanup (stale PID file, lingering
+  // env file, bound ports). We log and EXIT, not log and continue — Node docs warn
+  // that continuing after uncaughtException puts the process in undefined state
+  // (sql.js _persist() mid-write → corrupted DB, half-written responses → stuck
+  // connections, resource leaks accumulate). If auto-restart is needed, that's an
+  // OS-level concern (launchd/systemd), not ours.
+  let fatalShutdown = false;
+  process.on('uncaughtException', async (err) => {
+    // Guard against re-entrant exceptions during shutdown (e.g. app.stop()
+    // triggers another uncaught error). Without this, the handler recurses
+    // and process.exit(1) may never fire.
+    if (fatalShutdown) { process.exit(1); return; }
+    fatalShutdown = true;
+    log(`FATAL uncaught exception: ${err.stack ?? err}`);
+    try { await app.stop(); } catch {}
+    clearState();
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason) => {
+    log(`FATAL unhandled rejection: ${reason}`);
+    // Node 15+ would throw unhandled rejections by default. Without this exit,
+    // this handler downgrades that to log-and-continue — contradicting the
+    // "log and EXIT" design decision above. Match uncaughtException behavior.
+    process.exit(1);
+  });
+
   if (verbose) {
     console.log('Starting Agent Feed...');
     console.log(`  ✓ Proxy listening on :${status.proxyPort}`);

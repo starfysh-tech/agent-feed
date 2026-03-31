@@ -4,6 +4,8 @@ import TOML from 'toml';
 export const defaultConfig = {
   proxy: {
     port: 18080,
+    upstream_timeout: 120000,
+    max_capture_size: 10 * 1024 * 1024, // 10MB — skip capture (not truncate) above this
   },
   ui: {
     port: 3000,

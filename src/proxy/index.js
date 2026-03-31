@@ -19,11 +19,21 @@ function scrubHeaders(headers) {
 }
 
 export class Proxy {
-  constructor({ port = 8080, onCapture = () => {}, upstreamMap = UPSTREAM_MAP } = {}) {
+  constructor({ port = 8080, onCapture = () => {}, upstreamMap = UPSTREAM_MAP, upstreamTimeout = 0, maxCaptureSize = Infinity } = {}) {
     this._configPort = port;
     this.port = null;
     this.onCapture = onCapture;
     this._upstreamEntries = Object.entries(upstreamMap);
+    // WHY: Node's request.setTimeout() is a socket IDLE timeout, not TTFB.
+    // It fires during SSE streaming pauses too. We set it on request creation
+    // then CLEAR it once response headers arrive — making it a pure TTFB guard.
+    // 0 means no timeout (default, preserves existing behavior).
+    this._upstreamTimeout = upstreamTimeout;
+    // WHY: Capture chunks are buffered in memory then concatenated. Large responses
+    // consume 2x memory. Truncation is NOT safe — downstream adapters parse
+    // rawResponse for session IDs/content/tokens; truncated JSON breaks them silently.
+    // Instead: skip capture entirely when exceeded. Infinity = no limit (default).
+    this._maxCaptureSize = maxCaptureSize;
     this._server = null;
   }
 
@@ -49,6 +59,25 @@ export class Proxy {
   }
 
   _handleRequest(req, res) {
+    // WHY: /health on the proxy port (not UI port) because the proxy is the
+    // critical path — if it's down, agents can't work. Checked before body
+    // buffering to avoid wasting the read. Does not conflict with UPSTREAM_MAP
+    // prefixes (/anthropic, /openai, /google). Reserved path.
+    if (req.url === '/health' && req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+      return;
+    }
+
+    // WHY: Without an error listener, a client disconnect during body upload
+    // emits an unhandled 'error' → process crash → all agent traffic dies.
+    // No peer cleanup needed here — body read is local to this request.
+    req.on('error', (err) => {
+      if (err.code !== 'ECONNRESET') {
+        console.error('[proxy] client request error:', err.code, err.message);
+      }
+    });
+
     let requestBody = '';
     req.on('data', chunk => { requestBody += chunk; });
     req.on('end', () => {
@@ -106,14 +135,60 @@ export class Proxy {
     const transport = useTls ? https : http;
 
     const upstreamReq = transport.request(options, (upstreamRes) => {
+      // Clear TTFB timeout — headers arrived, stream is alive (see constructor for rationale)
+      if (this._upstreamTimeout) upstreamReq.setTimeout(0);
+
+      // WHY: upstreamRes.pipe(res) has zero error handlers by default. A client
+      // disconnect or upstream stream failure emits 'error' on the pipe. With no
+      // listener, Node throws → process crash → all agent traffic dies.
+      //
+      // Each handler cleans up its peer stream:
+      // - upstreamRes error → destroy res (client gets abrupt close, correct signal)
+      // - res error → destroy upstreamReq (stop reading from upstream)
+      //
+      // If upstreamRes errors mid-stream, the 'end' event may not fire but chunks
+      // are partially accumulated. streamErrored prevents storing partial responses
+      // as if they were complete — garbage in DB is worse than no capture.
+      let streamErrored = false;
+
+      upstreamRes.on('error', (err) => {
+        streamErrored = true;
+        if (err.code !== 'ECONNRESET') {
+          console.error('[proxy] upstream response error:', err.code, err.message);
+        }
+        if (!res.destroyed) res.destroy();
+      });
+
+      res.on('error', (err) => {
+        if (err.code !== 'ECONNRESET' && err.code !== 'ERR_STREAM_DESTROYED') {
+          console.error('[proxy] client response error:', err.code, err.message);
+        }
+        if (!upstreamReq.destroyed) upstreamReq.destroy();
+      });
+
       // Pipe raw bytes directly to client (preserves gzip/br encoding)
       res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
       upstreamRes.pipe(res);
 
       // Separately accumulate raw bytes for capture (need to decompress for storage)
       const chunks = [];
-      upstreamRes.on('data', chunk => { chunks.push(chunk); });
+      let captureSize = 0;
+      let captureSkipped = false;
+      upstreamRes.on('data', chunk => {
+        if (captureSkipped) return;
+        captureSize += chunk.length;
+        if (captureSize > this._maxCaptureSize) {
+          captureSkipped = true;
+          chunks.length = 0; // free accumulated memory
+          console.warn(`[proxy] capture skipped: response exceeds ${this._maxCaptureSize} bytes (path=${forwardPath})`);
+          return;
+        }
+        chunks.push(chunk);
+      });
       upstreamRes.on('end', () => {
+        // Partial or oversized data corrupts downstream adapters — skip capture
+        if (streamErrored || captureSkipped) return;
+
         const rawBuffer = Buffer.concat(chunks);
         const encoding = upstreamRes.headers['content-encoding'];
         const decode = encoding === 'gzip' ? zlib.gunzip
@@ -121,9 +196,15 @@ export class Proxy {
           : encoding === 'deflate' ? zlib.inflate
           : null;
 
+        // WHY: onCapture runs after response piping completes. If it throws
+        // synchronously → uncaughtException. If it returns a rejected promise →
+        // unhandledRejection. Both would trigger the process-level safety net
+        // and kill the process. But this is a known code path, not an unknown bug.
+        // Promise.resolve().then() catches both sync throws and async rejections.
+        // Capture is best-effort — log, don't crash.
         const emitCapture = (body) => {
           setImmediate(() => {
-            this.onCapture({
+            Promise.resolve().then(() => this.onCapture({
               timestamp,
               host: targetHost,
               path: forwardPath,
@@ -132,13 +213,23 @@ export class Proxy {
               rawRequest: scrubbedRequestBody,
               rawResponse: body,
               statusCode: upstreamRes.statusCode,
+            })).catch((err) => {
+              console.error('[proxy] capture error:', err.message ?? err);
             });
           });
         };
 
         if (decode) {
+          // WHY: Decompression failure used to fall back to rawBuffer.toString(),
+          // passing raw gzip/brotli binary as UTF-8 into the pipeline. This is
+          // garbage that every adapter fails to parse silently. Binary garbage in
+          // the DB is worse than no capture. Skip capture entirely on failure.
           decode(rawBuffer, (err, decoded) => {
-            emitCapture(err ? rawBuffer.toString() : decoded.toString());
+            if (err) {
+              console.error(`[proxy] decompression failed: ${err.message} encoding=${encoding} path=${forwardPath} size=${rawBuffer.length}`);
+              return;
+            }
+            emitCapture(decoded.toString());
           });
         } else {
           emitCapture(rawBuffer.toString());
@@ -147,9 +238,26 @@ export class Proxy {
     });
 
     upstreamReq.on('error', (err) => {
-      res.writeHead(502);
-      res.end(JSON.stringify({ error: 'Bad gateway', detail: err.message }));
+      if (!res.headersSent) {
+        res.writeHead(502);
+        res.end(JSON.stringify({ error: 'Bad gateway', detail: err.message }));
+      } else if (!res.destroyed) {
+        res.destroy();
+      }
     });
+
+    // TTFB timeout: if upstream never sends response headers (API outage, DNS
+    // black hole), destroy the request and send 504. Cleared inside response
+    // callback once headers arrive — safe for long-running SSE streams.
+    if (this._upstreamTimeout) {
+      upstreamReq.setTimeout(this._upstreamTimeout, () => {
+        upstreamReq.destroy();
+        if (!res.headersSent) {
+          res.writeHead(504);
+          res.end(JSON.stringify({ error: 'Gateway timeout' }));
+        }
+      });
+    }
 
     if (requestBody) upstreamReq.write(requestBody);
     upstreamReq.end();

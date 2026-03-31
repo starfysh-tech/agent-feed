@@ -18,7 +18,9 @@
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__navigate_page",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__resize_page",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__get_console_message",
-      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_network_requests"
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_network_requests",
+      "Read(//Users/randallnoval/.agent-feed/**)",
+      "Bash(sqlite3 ~/.agent-feed/agent-feed.db \"SELECT COUNT\\(*\\) as records FROM records; SELECT COUNT\\(*\\) as flags FROM flags; SELECT AVG\\(LENGTH\\(raw_response\\)\\) as avg_response_size, MAX\\(LENGTH\\(raw_response\\)\\) as max_response_size FROM records; SELECT AVG\\(LENGTH\\(raw_request\\)\\) as avg_request_size, MAX\\(LENGTH\\(raw_request\\)\\) as max_request_size FROM records;\")"
     ]
   }
 }

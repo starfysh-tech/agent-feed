@@ -58,6 +58,8 @@ export class App {
     // Start proxy
     this._proxy = new Proxy({
       port: proxyCfg.port,
+      upstreamTimeout: proxyCfg.upstream_timeout ?? 0,
+      maxCaptureSize: proxyCfg.max_capture_size ?? Infinity,
       onCapture: (capture) => {
         pipeline.process(capture).catch((err) => {
           console.error('[agent-feed] pipeline error:', err.message ?? err);
