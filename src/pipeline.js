@@ -5,6 +5,24 @@ import { randomUUID } from 'node:crypto';
 // Track turn counts per session in memory
 const sessionTurnCounts = new Map();
 
+// Allowlist: keep only last 2 messages + metadata. Drops tools (~138KB),
+// system (~15KB), model, max_tokens, etc. — all redundant across turns.
+// Only applies to Anthropic/OpenAI requests (Gemini uses `contents`, not `messages`).
+function trimRequestForStorage(rawRequest) {
+  if (!rawRequest) return rawRequest;
+  try {
+    const parsed = JSON.parse(rawRequest);
+    const messages = parsed?.messages;
+    if (!Array.isArray(messages) || messages.length <= 2) return rawRequest;
+    return JSON.stringify({
+      messages: messages.slice(-2),
+      metadata: parsed.metadata,
+    });
+  } catch {
+    return rawRequest;
+  }
+}
+
 export class Pipeline {
   constructor({ db, classifierFn = null }) {
     this.db = db;
@@ -67,7 +85,7 @@ export class Pipeline {
       git_branch: gitCtx.git_branch,
       git_commit: gitCtx.git_commit,
       response_summary: responseSummary,
-      raw_request: capture.rawRequest,
+      raw_request: trimRequestForStorage(capture.rawRequest),
       raw_response: capture.rawResponse,
       token_count: tokenCount,
       model,

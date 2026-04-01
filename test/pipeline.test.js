@@ -215,4 +215,123 @@ describe('Pipeline', () => {
     assert.equal(records[0].turn_index, 1);
     assert.equal(records[1].turn_index, 2);
   });
+
+  it('trims stored raw_request to last 2 messages when conversation has history', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db });
+
+    const sessionId = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+    await pipeline.process({
+      timestamp: new Date().toISOString(),
+      host: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      requestHeaders: {},
+      rawRequest: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8096,
+        system: 'You are a helpful assistant.',
+        tools: [{ name: 'bash', description: 'Run shell commands' }],
+        messages: [
+          { role: 'user', content: 'first question' },
+          { role: 'assistant', content: 'first answer' },
+          { role: 'user', content: 'second question' },
+          { role: 'assistant', content: 'second answer' },
+          { role: 'user', content: 'third question' },
+        ],
+        metadata: {
+          user_id: JSON.stringify({ session_id: sessionId }),
+        },
+      }),
+      rawResponse: JSON.stringify({
+        id: 'msg_trim_test',
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text: 'third answer' }],
+        usage: { input_tokens: 10, output_tokens: 10 },
+      }),
+      statusCode: 200,
+    });
+
+    const records = await db.getSession(sessionId);
+    assert.equal(records.length, 1);
+    const stored = JSON.parse(records[0].raw_request);
+    // Only last 2 messages kept
+    assert.equal(stored.messages.length, 2);
+    assert.equal(stored.messages[0].content, 'second answer');
+    assert.equal(stored.messages[1].content, 'third question');
+    // Metadata preserved
+    assert.ok(stored.metadata);
+    // Redundant fields dropped
+    assert.equal(stored.model, undefined);
+    assert.equal(stored.tools, undefined);
+    assert.equal(stored.system, undefined);
+  });
+
+  it('preserves raw_request unchanged when messages array has 2 or fewer entries', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db });
+
+    const sessionId = 'cccccccc-dddd-eeee-ffff-111111111111';
+    const rawRequest = JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      tools: [{ name: 'bash' }],
+      messages: [{ role: 'user', content: 'hello' }],
+      metadata: { user_id: JSON.stringify({ session_id: sessionId }) },
+    });
+
+    await pipeline.process({
+      timestamp: new Date().toISOString(),
+      host: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      requestHeaders: {},
+      rawRequest,
+      rawResponse: JSON.stringify({
+        id: 'msg_short_test',
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text: 'hi' }],
+        usage: { input_tokens: 5, output_tokens: 5 },
+      }),
+      statusCode: 200,
+    });
+
+    const records = await db.getSession(sessionId);
+    // When <= 2 messages, raw_request stored unchanged (with tools, system, etc.)
+    assert.equal(records[0].raw_request, rawRequest);
+  });
+
+  it('preserves raw_request unchanged when no messages array present', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db });
+
+    // Claude request without a messages array (unusual but possible)
+    const sessionId = 'dddddddd-eeee-ffff-0000-222222222222';
+    const rawRequest = JSON.stringify({
+      prompt: 'raw prompt without messages',
+      metadata: { user_id: JSON.stringify({ session_id: sessionId }) },
+    });
+
+    await pipeline.process({
+      timestamp: new Date().toISOString(),
+      host: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      requestHeaders: {},
+      rawRequest,
+      rawResponse: JSON.stringify({
+        id: 'msg_no_messages',
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text: 'response' }],
+        usage: { input_tokens: 5, output_tokens: 5 },
+      }),
+      statusCode: 200,
+    });
+
+    const records = await db.getSession(sessionId);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].raw_request, rawRequest);
+  });
 });

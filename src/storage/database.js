@@ -71,50 +71,6 @@ export class Database {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(SCHEMA);
-    this._migrateSessionIds();
-  }
-
-  _migrateSessionIds() {
-    const needsMigration = this.db.prepare(
-      "SELECT count(*) as c FROM records WHERE agent = 'claude-code' AND session_id LIKE 'msg_%'"
-    ).get();
-    if (!needsMigration.c) return;
-
-    const migrate = this.db.transaction(() => {
-      // Extraction path mirrors extractClaudeSessionFromRequest() in adapters/index.js
-      // Step A: Update session_id from request metadata
-      const stepA = this.db.prepare(`
-        UPDATE records SET
-          session_id = json_extract(json_extract(raw_request, '$.metadata.user_id'), '$.session_id')
-        WHERE agent = 'claude-code'
-          AND session_id LIKE 'msg_%'
-          AND json_extract(raw_request, '$.metadata.user_id') IS NOT NULL
-      `).run();
-
-      // Step B: Recompute turn_index for backfilled sessions only
-      this.db.prepare(`
-        WITH ordered AS (
-          SELECT id, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp, rowid) as rn
-          FROM records
-          WHERE agent = 'claude-code' AND session_id NOT LIKE 'msg_%'
-        )
-        UPDATE records SET turn_index = (
-          SELECT rn FROM ordered WHERE ordered.id = records.id
-        )
-        WHERE agent = 'claude-code' AND session_id NOT LIKE 'msg_%'
-      `).run();
-
-      const sessions = this.db.prepare(
-        "SELECT count(distinct session_id) as c FROM records WHERE agent = 'claude-code' AND session_id NOT LIKE 'msg_%'"
-      ).get();
-
-      return { records: stepA.changes, sessions: sessions.c };
-    });
-
-    const result = migrate();
-    if (result.records > 0) {
-      console.log(`[db] backfilled ${result.records} records into ${result.sessions} sessions`);
-    }
   }
 
   async close() {
