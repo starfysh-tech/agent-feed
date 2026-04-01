@@ -19,10 +19,26 @@ function isSSE(body) {
   return body.startsWith('event:') || body.startsWith('data:');
 }
 
+function extractClaudeSessionFromRequest(rawRequest) {
+  if (!rawRequest) return null;
+  try {
+    const parsed = JSON.parse(rawRequest);
+    const userIdStr = parsed?.metadata?.user_id;
+    if (!userIdStr) return null;
+    return JSON.parse(userIdStr)?.session_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const claudeAdapter = {
   name: AGENTS.CLAUDE,
 
-  extractSessionId(body) {
+  extractSessionId(body, context = {}) {
+    const fromRequest = extractClaudeSessionFromRequest(context.rawRequest);
+    if (fromRequest) return fromRequest;
+
+    // Fall back to response message ID
     try { return JSON.parse(body).id ?? null; } catch {}
     if (!isSSE(body)) return null;
     const events = parseSSEEvents(body);

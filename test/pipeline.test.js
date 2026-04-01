@@ -179,4 +179,40 @@ describe('Pipeline', () => {
     assert.equal(flags[1].type, 'assumption');
     assert.equal(flags[0].review_status, 'unreviewed');
   });
+
+  it('groups claude turns by request metadata session_id', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db });
+
+    const metadataSessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const makeCapture = (msgId, text) => ({
+      timestamp: new Date().toISOString(),
+      host: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      requestHeaders: {},
+      rawRequest: JSON.stringify({
+        messages: [{ role: 'user', content: text }],
+        metadata: {
+          user_id: JSON.stringify({ session_id: metadataSessionId }),
+        },
+      }),
+      rawResponse: JSON.stringify({
+        id: msgId,
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text }],
+        usage: { input_tokens: 10, output_tokens: 10 },
+      }),
+      statusCode: 200,
+    });
+
+    await pipeline.process(makeCapture('msg_turn1', 'first'));
+    await pipeline.process(makeCapture('msg_turn2', 'second'));
+
+    const records = await db.getSession(metadataSessionId);
+    assert.equal(records.length, 2);
+    assert.equal(records[0].turn_index, 1);
+    assert.equal(records[1].turn_index, 2);
+  });
 });

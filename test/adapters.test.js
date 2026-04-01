@@ -52,6 +52,37 @@ describe('Claude adapter', () => {
     const body = JSON.stringify({ content: [] });
     assert.equal(adapter.extractSessionId(body, {}), null);
   });
+
+  it('extracts session_id from request metadata.user_id', () => {
+    const rawRequest = JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      messages: [{ role: 'user', content: 'hello' }],
+      metadata: {
+        user_id: JSON.stringify({
+          device_id: 'dev_123',
+          account_uuid: 'acct_456',
+          session_id: 'df565c04-0888-4ccd-8567-be9826a9b4ed',
+        }),
+      },
+    });
+    const body = JSON.stringify({ id: 'msg_abc123', content: [] });
+    assert.equal(
+      adapter.extractSessionId(body, { rawRequest }),
+      'df565c04-0888-4ccd-8567-be9826a9b4ed'
+    );
+  });
+
+  it('falls back to response id when request metadata missing', () => {
+    const rawRequest = JSON.stringify({ model: 'claude-sonnet-4-6', messages: [] });
+    const body = JSON.stringify({ id: 'msg_fallback_001', content: [] });
+    assert.equal(adapter.extractSessionId(body, { rawRequest }), 'msg_fallback_001');
+  });
+
+  it('falls back to response id when rawRequest is null', () => {
+    const body = JSON.stringify({ id: 'msg_null_req', content: [] });
+    assert.equal(adapter.extractSessionId(body, {}), 'msg_null_req');
+    assert.equal(adapter.extractSessionId(body), 'msg_null_req');
+  });
 });
 
 describe('Claude adapter (SSE streaming)', () => {

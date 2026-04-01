@@ -24,6 +24,7 @@ export class Pipeline {
     const context = {
       proxySessionId: randomUUID(),
       requestHash: this._hashRequest(capture.rawRequest),
+      rawRequest: capture.rawRequest,
     };
 
     const sessionId = adapter.extractSessionId(capture.rawResponse, context);
