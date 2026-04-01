@@ -547,4 +547,65 @@ describe('Proxy resilience', () => {
 
     await healthProxy.stop();
   });
+
+  it('preserves multi-byte request bodies split across chunks', async () => {
+    // Build a JSON body containing multi-byte UTF-8 characters (emoji = 4 bytes each)
+    const originalBody = JSON.stringify({ text: '🔥🎉🚀 hello 你好世界' });
+    const originalBuffer = Buffer.from(originalBody);
+
+    // Record what the upstream actually receives (raw bytes)
+    let receivedBody = null;
+    const echoServer = await createFakeUpstream((req, res) => {
+      const chunks = [];
+      req.on('data', c => { chunks.push(c); });
+      req.on('end', () => {
+        receivedBody = Buffer.concat(chunks);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ id: 'msg_ok' }));
+      });
+    });
+
+    const testProxy = new Proxy({
+      port: 0,
+      onCapture: () => {},
+      upstreamMap: { '/test': { host: 'localhost', port: echoServer.port, tls: false } },
+    });
+    await testProxy.start();
+
+    // Send the body as deliberately split chunks that break multi-byte sequences.
+    // Find an emoji boundary and split there mid-character.
+    const splitPoint = originalBody.indexOf('🎉');
+    const byteOffset = Buffer.from(originalBody.slice(0, splitPoint)).length + 2; // mid-emoji
+
+    await new Promise((resolve, reject) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port: testProxy.port,
+        path: '/test/v1/messages',
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': originalBuffer.length,
+        },
+      }, (res) => {
+        res.resume();
+        res.on('end', resolve);
+      });
+      req.on('error', reject);
+      // Write two chunks that split a multi-byte character
+      req.write(originalBuffer.subarray(0, byteOffset));
+      req.write(originalBuffer.subarray(byteOffset));
+      req.end();
+    });
+
+    await testProxy.stop();
+    await echoServer.close();
+
+    // The upstream must receive the exact original bytes
+    assert.ok(receivedBody, 'upstream should have received a body');
+    assert.ok(
+      receivedBody.equals(originalBuffer),
+      `byte mismatch: sent ${originalBuffer.length} bytes, upstream got ${receivedBody.length} bytes`
+    );
+  });
 });

@@ -78,9 +78,10 @@ export class Proxy {
       }
     });
 
-    let requestBody = '';
-    req.on('data', chunk => { requestBody += chunk; });
+    const requestChunks = [];
+    req.on('data', chunk => { requestChunks.push(chunk); });
     req.on('end', () => {
+      const requestBody = Buffer.concat(requestChunks);
       this._forwardRequest(req, requestBody, res);
     });
   }
@@ -130,7 +131,7 @@ export class Proxy {
 
     const timestamp = new Date().toISOString();
     const scrubbedHeaders = scrubHeaders(forwardHeaders);
-    const scrubbedRequestBody = this._scrubBodyKeys(requestBody);
+    const scrubbedRequestBody = this._scrubBodyKeys(requestBody.toString());
 
     const transport = useTls ? https : http;
 
@@ -167,6 +168,9 @@ export class Proxy {
       });
 
       // Pipe raw bytes directly to client (preserves gzip/br encoding)
+      if (upstreamRes.statusCode >= 400) {
+        console.warn(`[proxy] upstream ${upstreamRes.statusCode} ${req.method} ${forwardPath}`);
+      }
       res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
       upstreamRes.pipe(res);
 
@@ -259,7 +263,7 @@ export class Proxy {
       });
     }
 
-    if (requestBody) upstreamReq.write(requestBody);
+    if (requestBody.length) upstreamReq.write(requestBody);
     upstreamReq.end();
   }
 
