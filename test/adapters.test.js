@@ -186,3 +186,59 @@ describe('Gemini adapter', () => {
     assert.equal(adapter.extractContent(body), 'the answer is 42');
   });
 });
+
+describe('Gemini adapter (Code Assist SSE)', () => {
+  let adapter;
+
+  before(() => {
+    adapter = getAdapter('cloudcode-pa.googleapis.com');
+  });
+
+  const sseBody = [
+    'data: ' + JSON.stringify({
+      response: {
+        candidates: [{ content: { role: 'model', parts: [{ thought: true, text: 'thinking...' }] } }],
+        usageMetadata: { trafficType: 'ON_DEMAND' },
+        modelVersion: 'gemini-3-flash-preview',
+        responseId: 'resp_gemini_001',
+      },
+    }),
+    '',
+    'data: ' + JSON.stringify({
+      response: {
+        candidates: [{ content: { role: 'model', parts: [{ text: 'Hello! ' }] } }],
+        modelVersion: 'gemini-3-flash-preview',
+        responseId: 'resp_gemini_001',
+      },
+    }),
+    '',
+    'data: ' + JSON.stringify({
+      response: {
+        candidates: [{ content: { role: 'model', parts: [{ text: 'How can I help?' }] }, finishReason: 'STOP' }],
+        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 10, totalTokenCount: 110 },
+        modelVersion: 'gemini-3-flash-preview',
+        responseId: 'resp_gemini_001',
+      },
+    }),
+    '',
+  ].join('\n');
+
+  it('extracts responseId as session id from SSE stream', () => {
+    assert.equal(adapter.extractSessionId(sseBody, {}), 'resp_gemini_001');
+  });
+
+  it('extracts text content, excluding thought parts', () => {
+    const content = adapter.extractContent(sseBody);
+    assert.ok(!content.includes('thinking'));
+    assert.ok(content.includes('Hello!'));
+    assert.ok(content.includes('How can I help?'));
+  });
+
+  it('extracts model from SSE stream', () => {
+    assert.equal(adapter.extractModel(sseBody), 'gemini-3-flash-preview');
+  });
+
+  it('extracts token count from SSE stream', () => {
+    assert.equal(adapter.extractTokenCount(sseBody), 110);
+  });
+});

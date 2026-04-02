@@ -23,7 +23,9 @@
       "Bash(sqlite3 ~/.agent-feed/agent-feed.db \"SELECT COUNT\\(*\\) as records FROM records; SELECT COUNT\\(*\\) as flags FROM flags; SELECT AVG\\(LENGTH\\(raw_response\\)\\) as avg_response_size, MAX\\(LENGTH\\(raw_response\\)\\) as max_response_size FROM records; SELECT AVG\\(LENGTH\\(raw_request\\)\\) as avg_request_size, MAX\\(LENGTH\\(raw_request\\)\\) as max_request_size FROM records;\")",
       "Bash(curl -s localhost:3000/api/sessions)",
       "Bash(curl -s localhost:3000/api/trends)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "mcp__github__search_code",
+      "mcp__github__search_repositories"
     ]
   }
 }

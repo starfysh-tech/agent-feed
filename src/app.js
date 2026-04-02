@@ -15,9 +15,10 @@ function resolvePath(p) {
 }
 
 export class App {
-  constructor({ config, skipClassifierValidation = false } = {}) {
+  constructor({ config, skipClassifierValidation = false, verbose = false } = {}) {
     this.config = config;
     this.skipClassifierValidation = skipClassifierValidation;
+    this._verbose = verbose;
     this._running = false;
     this._proxy = null;
     this._db = null;
@@ -60,6 +61,7 @@ export class App {
       port: proxyCfg.port,
       upstreamTimeout: proxyCfg.upstream_timeout ?? 0,
       maxCaptureSize: proxyCfg.max_capture_size ?? Infinity,
+      verbose: this._verbose,
       onCapture: (capture) => {
         pipeline.process(capture).catch((err) => {
           console.error('[agent-feed] pipeline error:', err.message ?? err);

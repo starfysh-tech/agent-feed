@@ -1,13 +1,25 @@
 import http from 'node:http';
 import https from 'node:https';
+import net from 'node:net';
+import tls from 'node:tls';
 import zlib from 'node:zlib';
 
 const SCRUBBED_HEADERS = ['authorization', 'x-api-key', 'x-goog-api-key'];
 
-export const UPSTREAM_MAP = {
+// Header-based upstream detection: route by provider-specific request headers.
+// Paths pass through unchanged — the proxy never rewrites URLs.
+export const UPSTREAM_RULES = [
+  { match: (h) => !!h['anthropic-version'],                       host: 'api.anthropic.com', port: 443, tls: true },
+  { match: (h) => !!h['x-goog-api-key'] || !!h['x-goog-api-client'], host: 'cloudcode-pa.googleapis.com', port: 443, tls: true },
+  { match: () => true,                                             host: 'api.openai.com', port: 443, tls: true }, // default fallback
+];
+
+// Legacy path-prefix routing for backward compat with running sessions
+// that still have ANTHROPIC_BASE_URL=http://localhost:PORT/anthropic in their env.
+export const LEGACY_PREFIXES = {
   '/anthropic': { host: 'api.anthropic.com', port: 443, tls: true },
   '/openai':    { host: 'api.openai.com', port: 443, tls: true },
-  '/google':    { host: 'generativelanguage.googleapis.com', port: 443, tls: true },
+  '/google':    { host: 'cloudcode-pa.googleapis.com', port: 443, tls: true },
 };
 
 function scrubHeaders(headers) {
@@ -19,11 +31,12 @@ function scrubHeaders(headers) {
 }
 
 export class Proxy {
-  constructor({ port = 8080, onCapture = () => {}, upstreamMap = UPSTREAM_MAP, upstreamTimeout = 0, maxCaptureSize = Infinity } = {}) {
+  constructor({ port = 8080, onCapture = () => {}, upstreamRules = UPSTREAM_RULES, legacyPrefixes = LEGACY_PREFIXES, upstreamTimeout = 0, maxCaptureSize = Infinity, verbose = false } = {}) {
     this._configPort = port;
     this.port = null;
     this.onCapture = onCapture;
-    this._upstreamEntries = Object.entries(upstreamMap);
+    this._upstreamRules = upstreamRules;
+    this._legacyPrefixEntries = Object.entries(legacyPrefixes);
     // WHY: Node's request.setTimeout() is a socket IDLE timeout, not TTFB.
     // It fires during SSE streaming pauses too. We set it on request creation
     // then CLEAR it once response headers arrive — making it a pure TTFB guard.
@@ -34,12 +47,90 @@ export class Proxy {
     // rawResponse for session IDs/content/tokens; truncated JSON breaks them silently.
     // Instead: skip capture entirely when exceeded. Infinity = no limit (default).
     this._maxCaptureSize = maxCaptureSize;
+    this._verbose = verbose;
     this._server = null;
+  }
+
+  _resolveRoute(req) {
+    // Legacy path-prefix routing (backward compat for sessions with old env vars)
+    const prefixMatch = this._legacyPrefixEntries.find(([prefix]) => req.url.startsWith(prefix));
+    if (prefixMatch) {
+      const [prefix, upstream] = prefixMatch;
+      return { host: upstream.host, port: upstream.port, tls: upstream.tls, path: req.url.slice(prefix.length) || '/' };
+    }
+    // Primary: route by provider-specific headers, paths unchanged
+    const rule = this._upstreamRules.find(r => r.match(req.headers));
+    if (!rule) return null;
+    return { host: rule.host, port: rule.port, tls: rule.tls, path: req.url };
   }
 
   async start() {
     this._server = http.createServer((req, res) => {
       this._handleRequest(req, res);
+    });
+
+    // WebSocket proxy: forward upgrade requests to upstream, then pipe sockets
+    this._server.on('upgrade', (req, socket, head) => {
+      const route = this._resolveRoute(req);
+      if (!route) { socket.destroy(); return; }
+      const { host: targetHost, port: targetPort, tls: useTls, path: forwardPath } = route;
+
+      if (this._verbose) {
+        console.log(`[proxy] WS ${forwardPath} → ${targetHost} (upgrade)`);
+      }
+
+      const upstreamSocket = (useTls ? tls : net).connect({
+        host: targetHost,
+        port: targetPort,
+        ...(useTls ? { servername: targetHost, ALPNProtocols: ['http/1.1'] } : {}),
+      }, () => {
+        const headers = { ...req.headers, host: targetHost };
+        delete headers['x-forwarded-host'];
+        delete headers['x-target-protocol'];
+
+        let request = `GET ${forwardPath} HTTP/1.1\r\n`;
+        for (const [key, val] of Object.entries(headers)) {
+          if (Array.isArray(val)) {
+            for (const v of val) request += `${key}: ${v}\r\n`;
+          } else {
+            request += `${key}: ${val}\r\n`;
+          }
+        }
+        request += '\r\n';
+
+        upstreamSocket.write(request);
+        if (head.length) upstreamSocket.write(head);
+
+        // Wait for the upstream HTTP response (101 Switching Protocols),
+        // forward it to the client, then pipe the raw sockets
+        let responseBuffer = Buffer.alloc(0);
+        const onData = (chunk) => {
+          responseBuffer = Buffer.concat([responseBuffer, chunk]);
+          const headerEnd = responseBuffer.indexOf('\r\n\r\n');
+          if (headerEnd === -1) return; // haven't received full headers yet
+
+          upstreamSocket.removeListener('data', onData);
+
+          if (this._verbose) {
+            const statusLine = responseBuffer.toString('utf8', 0, Math.min(headerEnd, 200));
+            console.log(`[proxy] WS upstream response: ${statusLine.split('\r\n')[0]}`);
+          }
+
+          // Forward the full HTTP response (headers + any extra data after \r\n\r\n)
+          socket.write(responseBuffer);
+
+          // Now pipe bidirectionally
+          socket.pipe(upstreamSocket);
+          upstreamSocket.pipe(socket);
+        };
+        upstreamSocket.on('data', onData);
+      });
+
+      upstreamSocket.on('error', (err) => {
+        if (this._verbose) console.error(`[proxy] WS upstream error: ${err.message}`);
+        if (!socket.destroyed) socket.destroy();
+      });
+      socket.on('error', () => { if (!upstreamSocket.destroyed) upstreamSocket.destroy(); });
     });
 
     await new Promise((resolve, reject) => {
@@ -61,7 +152,7 @@ export class Proxy {
   _handleRequest(req, res) {
     // WHY: /health on the proxy port (not UI port) because the proxy is the
     // critical path — if it's down, agents can't work. Checked before body
-    // buffering to avoid wasting the read. Does not conflict with UPSTREAM_MAP
+    // buffering to avoid wasting the read. Does not conflict with upstream rules
     // prefixes (/anthropic, /openai, /google). Reserved path.
     if (req.url === '/health' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -87,36 +178,17 @@ export class Proxy {
   }
 
   _forwardRequest(req, requestBody, res) {
-    let targetHost, targetPort, useTls, forwardPath;
-
-    const prefixMatch = this._upstreamEntries.find(([prefix]) => req.url.startsWith(prefix));
-
-    if (prefixMatch) {
-      const [prefix, upstream] = prefixMatch;
-      targetHost = upstream.host;
-      targetPort = upstream.port;
-      useTls = upstream.tls;
-      forwardPath = req.url.slice(prefix.length) || '/';
-    } else {
-      // Fallback: only honor explicit x-forwarded-host (not bare host header)
-      const hostHeader = req.headers['x-forwarded-host'];
-
-      if (!hostHeader) {
-        res.writeHead(404);
-        res.end(JSON.stringify({ error: 'Unknown route. Use /anthropic, /openai, or /google path prefix.' }));
-        return;
-      }
-
-      const protocol = req.headers['x-target-protocol'] || 'https';
-      const [hostname, portStr] = hostHeader.split(':');
-      targetHost = hostname;
-      targetPort = portStr ? parseInt(portStr, 10) : (protocol === 'https' ? 443 : 80);
-      useTls = protocol === 'https';
-      forwardPath = req.url;
+    const route = this._resolveRoute(req);
+    if (!route) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: 'Could not determine upstream from request headers.' }));
+      return;
     }
+    const { host: targetHost, port: targetPort, tls: useTls, path: forwardPath } = route;
 
     // Build forwarded headers, scrubbing sensitive values
     const forwardHeaders = { ...req.headers };
+    // Clean up any proxy-hint headers before forwarding
     delete forwardHeaders['x-forwarded-host'];
     delete forwardHeaders['x-target-protocol'];
     forwardHeaders['host'] = targetHost;
@@ -168,7 +240,9 @@ export class Proxy {
       });
 
       // Pipe raw bytes directly to client (preserves gzip/br encoding)
-      if (upstreamRes.statusCode >= 400) {
+      if (this._verbose) {
+        console.log(`[proxy] ${req.method} ${forwardPath} → ${targetHost} ${upstreamRes.statusCode}`);
+      } else if (upstreamRes.statusCode >= 400) {
         console.warn(`[proxy] upstream ${upstreamRes.statusCode} ${req.method} ${forwardPath}`);
       }
       res.writeHead(upstreamRes.statusCode, upstreamRes.headers);

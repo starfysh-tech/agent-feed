@@ -158,11 +158,39 @@ const codexAdapter = {
 const geminiAdapter = {
   name: AGENTS.GEMINI,
 
-  extractSessionId(_body, context = {}) {
-    return context.proxySessionId ?? null;
+  extractSessionId(body, context = {}) {
+    // SSE stream (Code Assist format) — extract responseId
+    if (isSSE(body)) {
+      const events = parseSSEEvents(body);
+      for (const e of events) {
+        if (e.response?.responseId) return e.response.responseId;
+      }
+    }
+    // Plain JSON (public Gemini API)
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed.responseId) return parsed.responseId;
+      // Skip admin/quota responses that have no content (loadCodeAssist, retrieveUserQuota, etc.)
+      if (parsed.candidates) return context.proxySessionId ?? null;
+    } catch {}
+    // No identifiable content — return null to skip capture
+    return null;
   },
 
   extractContent(body) {
+    // SSE format (Code Assist): data: {"response": {"candidates": [...]}}
+    if (isSSE(body)) {
+      const events = parseSSEEvents(body);
+      const textParts = [];
+      for (const e of events) {
+        const parts = e.response?.candidates?.[0]?.content?.parts ?? [];
+        for (const p of parts) {
+          if (p.text && !p.thought) textParts.push(p.text);
+        }
+      }
+      return textParts.join('') || null;
+    }
+    // Plain JSON (public Gemini API)
     try {
       const parsed = JSON.parse(body);
       const candidates = parsed.candidates ?? [];
@@ -175,6 +203,13 @@ const geminiAdapter = {
   },
 
   extractModel(body) {
+    if (isSSE(body)) {
+      const events = parseSSEEvents(body);
+      for (const e of events) {
+        if (e.response?.modelVersion) return e.response.modelVersion;
+      }
+      return null;
+    }
     try {
       return JSON.parse(body).modelVersion ?? null;
     } catch {
@@ -183,6 +218,18 @@ const geminiAdapter = {
   },
 
   extractTokenCount(body) {
+    if (isSSE(body)) {
+      const events = parseSSEEvents(body);
+      // Last event typically has full usage metadata
+      for (let i = events.length - 1; i >= 0; i--) {
+        const meta = events[i].response?.usageMetadata;
+        if (meta?.totalTokenCount) return meta.totalTokenCount;
+        if (meta?.promptTokenCount) {
+          return (meta.promptTokenCount ?? 0) + (meta.candidatesTokenCount ?? 0);
+        }
+      }
+      return null;
+    }
     try {
       const parsed = JSON.parse(body);
       const meta = parsed.usageMetadata ?? {};
@@ -205,6 +252,7 @@ const HOST_MAP = {
   'api.anthropic.com': claudeAdapter,
   'api.openai.com': codexAdapter,
   'generativelanguage.googleapis.com': geminiAdapter,
+  'cloudcode-pa.googleapis.com': geminiAdapter,
 };
 
 export function getAdapter(host) {
