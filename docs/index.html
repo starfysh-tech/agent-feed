@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Feed — See what your AI agents decided</title>
+  <meta name="description" content="Agent Feed is a transparent proxy that captures every decision, assumption, and risk your AI coding agents make — and surfaces them for review.">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0d0f11" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f8f9fa" media="(prefers-color-scheme: light)">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ─── Dark theme (default) ─── */
+    :root, [data-theme="dark"] {
+      --bg-base: #0d0f11;
+      --bg-surface: #141618;
+      --bg-raised: #1c1f22;
+      --bg-overlay: #242830;
+      --border-subtle: rgba(255,255,255,0.06);
+      --border-default: #262a2e;
+      --border-strong: #3a3f45;
+      --text-primary: #e1e4e8;
+      --text-secondary: #8a929c;
+      --text-tertiary: #5a6370;
+      --accent: #4a9eff;
+      --accent-dim: #1a3a5e;
+      --accent-subtle: rgba(74,158,255,0.08);
+      --nav-bg: rgba(13, 15, 17, 0.85);
+      --btn-bg: #e1e4e8;
+      --btn-color: #0d0f11;
+      --btn-star-bg: rgba(255,255,255,0.15);
+      --shadow-card: 0 2px 8px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.15);
+      --shadow-screenshot: 0 16px 48px rgba(0,0,0,0.35);
+      --code-bg: var(--bg-surface);
+      /* flag type colors */
+      --color-decision: #4a9eff;
+      --color-assumption: #f08030;
+      --color-architecture: #3dd68c;
+      --color-pattern: #a070e8;
+      --color-dependency: #40b0f0;
+      --color-tradeoff: #f0c040;
+      --color-constraint: #f05060;
+      --color-workaround: #d0a030;
+      --color-risk: #f06070;
+      --green: #3dd68c;
+    }
+
+    /* ─── Light theme ─── */
+    [data-theme="light"] {
+      --bg-base: #f8f9fa;
+      --bg-surface: #ffffff;
+      --bg-raised: #f0f1f3;
+      --bg-overlay: #e8eaed;
+      --border-subtle: rgba(0,0,0,0.06);
+      --border-default: #d8dce0;
+      --border-strong: #c0c5cb;
+      --text-primary: #1a1d21;
+      --text-secondary: #525960;
+      --text-tertiary: #5b6370;
+      --accent: #1a6dd2;
+      --accent-dim: #e3f0ff;
+      --accent-subtle: rgba(26,109,210,0.06);
+      --nav-bg: rgba(248, 249, 250, 0.85);
+      --btn-bg: #1a1d21;
+      --btn-color: #f8f9fa;
+      --btn-star-bg: rgba(0,0,0,0.12);
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04);
+      --shadow-screenshot: 0 8px 32px rgba(0,0,0,0.1);
+      --code-bg: #1a1d21;
+      /* slightly deeper flag colors for light bg readability */
+      --color-decision: #1a6dd2;
+      --color-assumption: #c55a10;
+      --color-architecture: #1a9960;
+      --color-pattern: #7c3aed;
+      --color-dependency: #0c7fd4;
+      --color-tradeoff: #b38600;
+      --color-constraint: #d4243a;
+      --color-workaround: #9a7200;
+      --color-risk: #d4304a;
+      --green: #1a9960;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        --bg-base: #f8f9fa;
+        --bg-surface: #ffffff;
+        --bg-raised: #f0f1f3;
+        --bg-overlay: #e8eaed;
+        --border-subtle: rgba(0,0,0,0.06);
+        --border-default: #d8dce0;
+        --border-strong: #c0c5cb;
+        --text-primary: #1a1d21;
+        --text-secondary: #525960;
+        --text-tertiary: #5b6370;
+        --accent: #1a6dd2;
+        --accent-dim: #e3f0ff;
+        --accent-subtle: rgba(26,109,210,0.06);
+        --nav-bg: rgba(248, 249, 250, 0.85);
+        --btn-bg: #1a1d21;
+        --btn-color: #f8f9fa;
+        --btn-star-bg: rgba(0,0,0,0.12);
+        --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04);
+        --shadow-screenshot: 0 8px 32px rgba(0,0,0,0.1);
+        --code-bg: #1a1d21;
+        --color-decision: #1a6dd2;
+        --color-assumption: #c55a10;
+        --color-architecture: #1a9960;
+        --color-pattern: #7c3aed;
+        --color-dependency: #0c7fd4;
+        --color-tradeoff: #b38600;
+        --color-constraint: #d4243a;
+        --color-workaround: #9a7200;
+        --color-risk: #d4304a;
+        --green: #1a9960;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    /* ─── Focus ─── */
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    /* ─── Nav ─── */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--nav-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 0 clamp(24px, 5vw, 64px);
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: background 0.3s;
+    }
+
+    .nav-logo {
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      text-decoration: none;
+      text-transform: uppercase;
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-decoration: none;
+      letter-spacing: 0.02em;
+      transition: color 0.2s;
+      cursor: pointer;
+      padding: 12px 8px;
+    }
+
+    .nav-links a:hover { color: var(--text-primary); }
+
+    .theme-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+
+    .theme-toggle:hover {
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+      background: var(--accent-subtle);
+    }
+
+    .theme-toggle svg { width: 16px; height: 16px; }
+    .theme-toggle .icon-moon { display: none; }
+    [data-theme="light"] .theme-toggle .icon-sun { display: none; }
+    [data-theme="light"] .theme-toggle .icon-moon { display: block; }
+
+    /* ─── Sections ─── */
+    .section {
+      padding: clamp(48px, 7vw, 88px) clamp(24px, 5vw, 64px);
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+
+    .section-headline {
+      font-size: clamp(24px, 3vw, 36px);
+      font-weight: 600;
+      line-height: 1.2;
+      color: var(--text-primary);
+      max-width: 640px;
+    }
+
+    .section-sub {
+      font-size: clamp(16px, 1.8vw, 18px);
+      color: var(--text-secondary);
+      line-height: 1.65;
+      max-width: 560px;
+      margin-top: 16px;
+    }
+
+    /* ─── Hero ─── */
+    .hero {
+      padding-top: clamp(80px, 12vw, 140px);
+      padding-bottom: clamp(48px, 8vw, 80px);
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 48px;
+    }
+
+    .hero-headline {
+      font-size: clamp(32px, 5vw, 56px);
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: -0.025em;
+      color: var(--text-primary);
+      max-width: 680px;
+    }
+
+    .hero-headline em {
+      font-style: normal;
+      color: var(--text-tertiary);
+    }
+
+    .hero-sub {
+      font-size: clamp(16px, 2vw, 20px);
+      color: var(--text-secondary);
+      line-height: 1.6;
+      max-width: 580px;
+      margin-top: 24px;
+      font-weight: 300;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      margin-top: 40px;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--btn-bg);
+      color: var(--btn-color);
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 6px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-primary svg { width: 18px; height: 18px; }
+
+    .star-count {
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--btn-star-bg);
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-left: 4px;
+    }
+
+    .btn-ghost {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+
+    .btn-ghost:hover { color: var(--text-primary); }
+
+    .hero-visual {
+      position: relative;
+      max-height: 520px;
+      overflow: hidden;
+      border-radius: 10px;
+      -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+      mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+    }
+
+    .hero-screenshot {
+      width: 100%;
+      max-width: 960px;
+      border-radius: 10px;
+      border: 1px solid var(--border-default);
+      box-shadow: var(--shadow-screenshot);
+      display: block;
+    }
+
+    /* ─── Problem ─── */
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      margin-top: 48px;
+      background: var(--border-default);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .problem-card {
+      background: var(--bg-surface);
+      padding: clamp(24px, 3vw, 40px);
+      transition: background 0.2s;
+    }
+
+    .problem-card:hover { background: var(--bg-raised); }
+
+    .problem-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 10px;
+    }
+
+    .problem-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .problem-indicator {
+      width: 32px;
+      height: 3px;
+      border-radius: 2px;
+      margin-bottom: 20px;
+    }
+
+    /* ─── How It Works ─── */
+    .flow {
+      margin-top: 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .flow-step {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 20px;
+      padding: 28px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background 0.2s;
+    }
+
+    .flow-step:last-child { border-bottom: none; }
+
+    .flow-num {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      padding-top: 2px;
+    }
+
+    .flow-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .flow-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .flow-tag {
+      display: inline-block;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 3px 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+
+    /* ─── Flags ─── */
+    .flags-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 48px;
+    }
+
+    .flag-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 18px 20px;
+      background: var(--bg-surface);
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: default;
+    }
+
+    .flag-item:hover {
+      border-color: var(--border-default);
+      box-shadow: var(--shadow-card);
+      transform: translateY(-2px);
+    }
+
+    .flag-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+
+    .flag-name {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .flag-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* ─── Screenshots ─── */
+    .screenshots {
+      margin-top: 48px;
+    }
+
+    .screenshot-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border-default);
+      margin-bottom: 32px;
+    }
+
+    .screenshot-tab {
+      padding: 12px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      font-family: 'IBM Plex Sans', sans-serif;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .screenshot-tab:hover { color: var(--text-secondary); }
+    .screenshot-tab.active {
+      color: var(--text-primary);
+      border-bottom-color: var(--accent);
+    }
+
+    .screenshot-panel { display: none; }
+    .screenshot-panel.active { display: block; }
+
+    .screenshot-perspective {
+      perspective: 800px;
+    }
+
+    .screenshot-frame {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: var(--shadow-screenshot);
+      transition: transform 0.15s ease-out, box-shadow 0.3s;
+      max-height: 420px;
+      transform-style: preserve-3d;
+      will-change: transform;
+    }
+
+    .screenshot-frame:hover {
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    }
+
+    .screenshot-frame img {
+      width: 100%;
+      display: block;
+    }
+
+    .screenshot-caption {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 16px;
+      line-height: 1.6;
+    }
+
+    /* ─── Use Cases ─── */
+    .usecases {
+      margin-top: 48px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--border-default);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .usecase {
+      background: var(--bg-surface);
+      padding: clamp(24px, 3vw, 36px);
+      transition: background 0.2s;
+    }
+
+    .usecase:hover { background: var(--bg-raised); }
+
+    .usecase-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .usecase-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* ─── Quick Start ─── */
+    .quickstart-block {
+      margin-top: 40px;
+      background: var(--code-bg);
+      border: 1px solid var(--border-default);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .quickstart-header {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Light mode: code block stays dark */
+    [data-theme="light"] .quickstart-block {
+      background: #1a1d21;
+      border-color: #2a2d31;
+    }
+    [data-theme="light"] .quickstart-header {
+      color: #5a6370;
+      border-bottom-color: rgba(255,255,255,0.06);
+    }
+    [data-theme="light"] .quickstart-code { color: #e1e4e8; }
+    [data-theme="light"] .quickstart-code .comment { color: #5a6370; }
+    [data-theme="light"] .quickstart-code .cmd { color: #4a9eff; }
+    [data-theme="light"] .quickstart-header .dot { background: #3dd68c; }
+
+    .quickstart-header .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      opacity: 0.7;
+    }
+
+    .quickstart-code {
+      padding: 24px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+      line-height: 2;
+      color: var(--text-primary);
+      overflow-x: auto;
+    }
+
+    .quickstart-code .comment { color: var(--text-tertiary); }
+    .quickstart-code .cmd { color: var(--accent); }
+
+    .quickstart-note {
+      font-size: 13px;
+      color: var(--text-tertiary);
+      margin-top: 20px;
+      line-height: 1.6;
+    }
+
+    /* ─── Technical ─── */
+    .tech-grid {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+
+    .tech-row { display: contents; }
+
+    .tech-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-tertiary);
+      letter-spacing: 0.04em;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .tech-value {
+      font-size: 14px;
+      color: var(--text-secondary);
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    /* ─── Footer CTA ─── */
+    .footer-cta {
+      text-align: left;
+      padding: clamp(64px, 10vw, 100px) clamp(24px, 5vw, 64px);
+      max-width: 1120px;
+      margin: 0 auto;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .footer-cta-headline {
+      font-size: clamp(24px, 3.5vw, 40px);
+      font-weight: 600;
+      line-height: 1.15;
+      color: var(--text-primary);
+      max-width: 540px;
+      letter-spacing: -0.02em;
+    }
+
+    .footer-cta-sub {
+      font-size: 14px;
+      color: var(--text-tertiary);
+      margin-top: 24px;
+    }
+
+    .footer-cta .hero-actions { margin-top: 32px; }
+
+    /* ─── Footer ─── */
+    .footer {
+      padding: 32px clamp(24px, 5vw, 64px);
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 13px;
+      color: var(--text-tertiary);
+    }
+
+    .footer a {
+      color: var(--text-tertiary);
+      text-decoration: none;
+      transition: color 0.2s;
+      cursor: pointer;
+      padding: 12px 0;
+    }
+
+    .footer a:hover { color: var(--text-secondary); }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 768px) {
+      .problem-grid { grid-template-columns: 1fr; }
+      .flags-grid { grid-template-columns: 1fr 1fr; }
+      .usecases { grid-template-columns: 1fr; }
+      .tech-grid { grid-template-columns: 120px 1fr; }
+      .nav-links { gap: 16px; }
+      .nav-right { gap: 16px; }
+      .problem-desc, .flag-desc, .usecase-desc, .flow-desc, .screenshot-caption, .tech-value, .quickstart-note {
+        font-size: 15px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .flags-grid { grid-template-columns: 1fr; }
+      .hero-actions {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .footer {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+      }
+    }
+
+    /* ─── Entrance animations ─── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Staggered children */
+    .reveal-stagger > * {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .reveal-stagger.visible > * { opacity: 1; transform: translateY(0); }
+    .reveal-stagger.visible > *:nth-child(1) { transition-delay: 0ms; }
+    .reveal-stagger.visible > *:nth-child(2) { transition-delay: 60ms; }
+    .reveal-stagger.visible > *:nth-child(3) { transition-delay: 120ms; }
+    .reveal-stagger.visible > *:nth-child(4) { transition-delay: 180ms; }
+    .reveal-stagger.visible > *:nth-child(5) { transition-delay: 240ms; }
+    .reveal-stagger.visible > *:nth-child(6) { transition-delay: 300ms; }
+    .reveal-stagger.visible > *:nth-child(7) { transition-delay: 360ms; }
+    .reveal-stagger.visible > *:nth-child(8) { transition-delay: 420ms; }
+    .reveal-stagger.visible > *:nth-child(9) { transition-delay: 480ms; }
+
+    /* ─── Proposal 1: Animated flow diagram ─── */
+    .flow-diagram {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      flex-wrap: wrap;
+      padding: 20px 0;
+      margin-top: 32px;
+    }
+
+    .flow-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+    }
+
+    .flow-node-box {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 12px 20px;
+      border-radius: 8px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-raised);
+      color: var(--text-primary);
+      position: relative;
+      z-index: 2;
+      white-space: nowrap;
+    }
+
+    .flow-node-box.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 16px rgba(74,158,255,0.15);
+    }
+
+    .flow-node-label {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .flow-connector {
+      width: 64px;
+      height: 2px;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .flow-connector-track {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--border-strong);
+    }
+
+    .flow-connector-pulse {
+      position: absolute;
+      top: -2px;
+      left: -20px;
+      width: 20px;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse-move 2s linear infinite;
+    }
+
+    .flow-connector:nth-child(4) .flow-connector-pulse { animation-delay: 0.4s; }
+    .flow-connector:nth-child(6) .flow-connector-pulse { animation-delay: 0.8s; }
+    .flow-connector:nth-child(8) .flow-connector-pulse { animation-delay: 1.2s; }
+
+    @keyframes pulse-move {
+      0% { left: -20px; opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { left: calc(100%); opacity: 0; }
+    }
+
+    .flow-node-box.active::before {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 10px;
+      border: 1px dashed var(--accent);
+      opacity: 0.3;
+      animation: dash-rotate 8s linear infinite;
+    }
+
+    @keyframes dash-rotate {
+      to { stroke-dashoffset: -100; }
+    }
+
+    @keyframes pulse-move-vert {
+      0% { top: -20px; opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+
+    /* ─── Proposal 2: Flag dot pulse ─── */
+    .flag-dot {
+      transform: scale(0);
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .reveal-stagger.visible .flag-dot {
+      transform: scale(1);
+    }
+
+    .flag-dot.pulse {
+      animation: dot-pulse 1.5s ease-out;
+    }
+
+    @keyframes dot-pulse {
+      0% { box-shadow: 0 0 0 0 currentColor; }
+      50% { box-shadow: 0 0 0 6px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+
+    /* ─── Proposal 3: Hero typing effect ─── */
+    .typed-part {
+      font-family: 'IBM Plex Mono', monospace;
+      color: var(--accent);
+      border-right: 2px solid var(--accent);
+      animation: blink-cursor 0.8s step-end infinite;
+    }
+
+    .typed-part.done {
+      border-right-color: transparent;
+      animation: none;
+    }
+
+    .typed-part.done.blink-final {
+      animation: blink-cursor 0.8s step-end 3;
+    }
+
+    @keyframes blink-cursor {
+      50% { border-right-color: transparent; }
+    }
+
+    /* ─── Proposal 4: Animated counter ─── */
+    .counter-demo {
+      padding: 0 0 16px 0;
+    }
+
+    .counter-statement {
+      font-size: clamp(18px, 2.5vw, 28px);
+      font-weight: 300;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .counter-num {
+      font-family: 'IBM Plex Mono', monospace;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-size: 1.15em;
+      min-width: 3.5ch;
+      display: inline-block;
+    }
+
+    .counter-num.contrast {
+      color: var(--color-risk);
+    }
+
+    /* ─── Flow diagram mobile ─── */
+    @media (max-width: 768px) {
+      .flow-diagram { flex-direction: column; }
+      .flow-connector { width: 2px; height: 32px; }
+      .flow-connector-pulse {
+        width: 6px;
+        height: 20px;
+        top: -20px;
+        left: -2px;
+        animation-name: pulse-move-vert;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav class="nav">
+    <a href="#" class="nav-logo">Agent Feed</a>
+    <div class="nav-right">
+      <ul class="nav-links">
+        <li><a href="https://github.com/starfysh-tech/agent-feed#readme">Docs</a></li>
+        <li><a href="https://github.com/starfysh-tech/agent-feed">GitHub</a></li>
+      </ul>
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+        <svg class="icon-sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/></svg>
+        <svg class="icon-moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13.5 8.5a5.5 5.5 0 0 1-7-7 5.5 5.5 0 1 0 7 7z"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="section hero">
+    <div>
+      <h1 class="hero-headline">Your agents are making architecture decisions.<br><span class="typed-part" id="typed-target"></span></h1>
+      <p class="hero-sub">Agent Feed captures every decision, assumption, and risk your AI coding agents make &mdash; and surfaces them for review before they become technical debt.</p>
+      <div class="hero-actions">
+        <a href="https://github.com/starfysh-tech/agent-feed" class="btn-primary">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Star on GitHub
+          <span class="star-count" id="star-count" style="display:none"></span>
+        </a>
+        <a href="#how-it-works" class="btn-ghost">How it works &darr;</a>
+      </div>
+    </div>
+    <div class="hero-visual reveal">
+      <img src="img/ui-redesign-detail.png" alt="Agent Feed session review interface showing flagged decisions, assumptions, and architecture choices" class="hero-screenshot" loading="eager">
+    </div>
+  </section>
+
+  <!-- Problem -->
+  <section class="section">
+    <div class="counter-demo reveal">
+      <div class="counter-statement">
+        Your agents made <span class="counter-num" id="counter-decisions">0</span> decisions today.<br>
+        You reviewed <span class="counter-num contrast" id="counter-reviewed">0</span>.
+      </div>
+    </div>
+    <div class="reveal">
+      <p class="section-label">The visibility gap</p>
+      <h2 class="section-headline">Code diffs show what changed. Not why.</h2>
+    </div>
+    <div class="problem-grid reveal">
+      <div class="problem-card">
+        <div class="problem-indicator" style="background: var(--color-decision);"></div>
+        <h3 class="problem-title">Hidden decisions</h3>
+        <p class="problem-desc">Agents choose between approaches, pick defaults, apply patterns. None of this appears in the diff. You review the output without seeing the reasoning.</p>
+      </div>
+      <div class="problem-card">
+        <div class="problem-indicator" style="background: var(--color-dependency);"></div>
+        <h3 class="problem-title">Unvetted dependencies</h3>
+        <p class="problem-desc">A new library gets pulled in because the agent thought it was the right call. You find out during deploy &mdash; or worse, in production.</p>
+      </div>
+      <div class="problem-card">
+        <div class="problem-indicator" style="background: var(--color-workaround);"></div>
+        <h3 class="problem-title">Invisible workarounds</h3>
+        <p class="problem-desc">&ldquo;For now I&rsquo;ll use string concatenation&rdquo; &mdash; temporary code that becomes permanent because nobody saw it happen.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="section" id="how-it-works">
+    <div class="reveal">
+      <p class="section-label">How it works</p>
+      <h2 class="section-headline">Zero friction. Structured visibility.</h2>
+      <p class="section-sub">Agent Feed is a transparent proxy. Set one environment variable &mdash; your agents route through it without any changes to their setup.</p>
+    </div>
+    <div class="flow-diagram reveal">
+      <div class="flow-node">
+        <div class="flow-node-box">Agent</div>
+        <span class="flow-node-label">request</span>
+      </div>
+      <div class="flow-connector">
+        <div class="flow-connector-track"></div>
+        <div class="flow-connector-pulse"></div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-box active">Proxy</div>
+        <span class="flow-node-label">intercept</span>
+      </div>
+      <div class="flow-connector">
+        <div class="flow-connector-track"></div>
+        <div class="flow-connector-pulse"></div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-box">Classifier</div>
+        <span class="flow-node-label">LLM analysis</span>
+      </div>
+      <div class="flow-connector">
+        <div class="flow-connector-track"></div>
+        <div class="flow-connector-pulse"></div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-box">SQLite</div>
+        <span class="flow-node-label">storage</span>
+      </div>
+      <div class="flow-connector">
+        <div class="flow-connector-track"></div>
+        <div class="flow-connector-pulse"></div>
+      </div>
+      <div class="flow-node">
+        <div class="flow-node-box">Web UI</div>
+        <span class="flow-node-label">review</span>
+      </div>
+    </div>
+    <div class="flow reveal">
+      <div class="flow-step">
+        <span class="flow-num">01</span>
+        <div>
+          <h3 class="flow-title">Proxy captures responses</h3>
+          <p class="flow-desc">Every API response from Claude Code, Codex, or Gemini passes through the proxy. The agent doesn&rsquo;t know it&rsquo;s there &mdash; responses are forwarded unmodified.</p>
+          <span class="flow-tag">one env var to enable</span>
+        </div>
+      </div>
+      <div class="flow-step">
+        <span class="flow-num">02</span>
+        <div>
+          <h3 class="flow-title">Classifier extracts flags</h3>
+          <p class="flow-desc">A secondary LLM reads each response and extracts structured flags: decisions, assumptions, architecture choices, workarounds, risks, dependencies, and more. Nine types total.</p>
+          <span class="flow-tag">async &mdash; never blocks the agent</span>
+        </div>
+      </div>
+      <div class="flow-step">
+        <span class="flow-num">03</span>
+        <div>
+          <h3 class="flow-title">Review in the web UI</h3>
+          <p class="flow-desc">After a session, open the dashboard. Walk through each flagged item chronologically. Accept what looks right, flag what needs attention, mark false positives to improve the classifier.</p>
+          <span class="flow-tag">local &mdash; no cloud, no telemetry</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Flags -->
+  <section class="section">
+    <div class="reveal">
+      <p class="section-label">Classification</p>
+      <h2 class="section-headline">Nine types of agent behavior, classified automatically.</h2>
+      <p class="section-sub">Each response is analyzed and tagged. These aren&rsquo;t vague sentiments &mdash; they&rsquo;re specific, reviewable items with confidence scores.</p>
+    </div>
+    <div class="flags-grid reveal-stagger reveal">
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-decision); color: var(--color-decision);"></div>
+        <div><div class="flag-name">decision</div><div class="flag-desc">A choice between alternatives</div></div>
+      </div>
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-assumption); color: var(--color-assumption);"></div>
+        <div><div class="flag-name">assumption</div><div class="flag-desc">Something assumed without verification</div></div>
+      </div>
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-architecture); color: var(--color-architecture);"></div>
+        <div><div class="flag-name">architecture</div><div class="flag-desc">A structural or design choice</div></div>
+      </div>
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-pattern); color: var(--color-pattern);"></div>
+        <div><div class="flag-name">pattern</div><div class="flag-desc">A design pattern or convention applied</div></div>
+      </div>
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-dependency); color: var(--color-dependency);"></div>
+        <div><div class="flag-name">dependency</div><div class="flag-desc">A library or service introduced</div></div>
+      </div>
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-tradeoff); color: var(--color-tradeoff);"></div>
+        <div><div class="flag-name">tradeoff</div><div class="flag-desc">An explicit this-over-that choice</div></div>
+      </div>
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-constraint); color: var(--color-constraint);"></div>
+        <div><div class="flag-name">constraint</div><div class="flag-desc">A hard limit shaping the approach</div></div>
+      </div>
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-workaround); color: var(--color-workaround);"></div>
+        <div><div class="flag-name">workaround</div><div class="flag-desc">A temporary or non-ideal solution</div></div>
+      </div>
+      <div class="flag-item">
+        <div class="flag-dot" style="background: var(--color-risk); color: var(--color-risk);"></div>
+        <div><div class="flag-name">risk</div><div class="flag-desc">Something potentially problematic</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screenshots -->
+  <section class="section">
+    <div class="reveal">
+      <p class="section-label">The interface</p>
+      <h2 class="section-headline">Built for post-session review.</h2>
+    </div>
+    <div class="screenshots reveal">
+      <div class="screenshot-tabs">
+        <button class="screenshot-tab active" data-tab="review">Session review</button>
+        <button class="screenshot-tab" data-tab="trends">Trends</button>
+        <button class="screenshot-tab" data-tab="overview">Sessions list</button>
+      </div>
+      <div class="screenshot-panel active" id="tab-review">
+        <div class="screenshot-perspective">
+          <div class="screenshot-frame parallax-tilt">
+            <img src="img/ui-redesign-detail.png" alt="Session detail view with chronological flags, review controls, and status indicators" loading="lazy" width="1920" height="1080">
+          </div>
+        </div>
+        <p class="screenshot-caption">Walk through each flagged item in order. Accept, flag for changes, or mark false positives. Every review action trains the classifier.</p>
+      </div>
+      <div class="screenshot-panel" id="tab-trends">
+        <div class="screenshot-perspective">
+          <div class="screenshot-frame parallax-tilt">
+            <img src="img/ui-redesign-trends.png" alt="Trends view showing flag distribution across sessions with color-coded bars" loading="lazy" width="1920" height="1080">
+          </div>
+        </div>
+        <p class="screenshot-caption">Spot patterns across sessions. Rising workaround rates. Recurring wrong assumptions. Measure whether prompts are improving over time.</p>
+      </div>
+      <div class="screenshot-panel" id="tab-overview">
+        <div class="screenshot-perspective">
+          <div class="screenshot-frame parallax-tilt">
+            <img src="img/ui-redesign-overview.png" alt="Session list view showing all captured sessions with flag counts and agent types" loading="lazy" width="1920" height="1080">
+          </div>
+        </div>
+        <p class="screenshot-caption">Every agent session captured with flag counts, agent type, and git context. Filter by agent, date, or repository.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Use Cases -->
+  <section class="section">
+    <div class="reveal">
+      <p class="section-label">Use cases</p>
+      <h2 class="section-headline">Visibility at every stage.</h2>
+    </div>
+    <div class="usecases reveal">
+      <div class="usecase">
+        <h3 class="usecase-title">Pre-merge audit</h3>
+        <p class="usecase-desc">Before reviewing a PR, pull up the session. Know what was decided &mdash; what alternatives were considered, what was assumed &mdash; before reading the code.</p>
+      </div>
+      <div class="usecase">
+        <h3 class="usecase-title">Team oversight</h3>
+        <p class="usecase-desc">When developers use agents, you lose visibility into what the agent decided on their behalf. Agent Feed creates the audit trail without adding documentation burden.</p>
+      </div>
+      <div class="usecase">
+        <h3 class="usecase-title">Prompt improvement</h3>
+        <p class="usecase-desc">Trends reveal which prompts produce workarounds, which tasks generate wrong assumptions. Fix the inputs, not the outputs.</p>
+      </div>
+      <div class="usecase">
+        <h3 class="usecase-title">Classifier calibration</h3>
+        <p class="usecase-desc">Built-in eval framework measures precision and recall per flag type. Your review actions become ground truth automatically.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start -->
+  <section class="section">
+    <div class="reveal">
+      <p class="section-label">Get started</p>
+      <h2 class="section-headline">One install. One command. One env var.</h2>
+    </div>
+    <div class="quickstart-block reveal">
+      <div class="quickstart-header">
+        <span class="dot"></span>
+        terminal
+      </div>
+      <pre class="quickstart-code"><span class="cmd">git clone</span> https://github.com/starfysh-tech/agent-feed
+<span class="cmd">cd</span> agent-feed && <span class="cmd">npm install</span> && <span class="cmd">npm link</span>
+<span class="cmd">agent-feed start</span>
+<span class="comment"># That's it. Your agents now route through the proxy.</span></pre>
+    </div>
+    <p class="quickstart-note reveal">Works with Claude Code, Codex, and Gemini. Requires Node.js 20+. All data stays local in ~/.agent-feed/.</p>
+  </section>
+
+  <!-- Technical Details -->
+  <section class="section">
+    <div class="reveal">
+      <p class="section-label">Under the hood</p>
+      <h2 class="section-headline">Simple architecture. No surprises.</h2>
+    </div>
+    <div class="tech-grid reveal">
+      <div class="tech-row">
+        <div class="tech-label">Storage</div>
+        <div class="tech-value">SQLite with WAL mode, local at ~/.agent-feed/</div>
+      </div>
+      <div class="tech-row">
+        <div class="tech-label">Classification</div>
+        <div class="tech-value">Haiku by default. Supports Ollama and LM Studio for fully local inference.</div>
+      </div>
+      <div class="tech-row">
+        <div class="tech-label">Security</div>
+        <div class="tech-value">API keys scrubbed before storage. Auth headers never written to disk.</div>
+      </div>
+      <div class="tech-row">
+        <div class="tech-label">Eval</div>
+        <div class="tech-value">Built-in precision/recall/F1 metrics per flag type. CLI-driven.</div>
+      </div>
+      <div class="tech-row">
+        <div class="tech-label">Architecture</div>
+        <div class="tech-value">ESM Node.js. No build step. No framework. 83 tests.</div>
+      </div>
+      <div class="tech-row">
+        <div class="tech-label">License</div>
+        <div class="tech-value">Open source</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer CTA -->
+  <section class="footer-cta">
+    <div class="reveal">
+      <h2 class="footer-cta-headline">Stop reviewing code without knowing what the agent decided.</h2>
+      <p class="footer-cta-sub">Open source. No telemetry. No cloud dependency.</p>
+      <div class="hero-actions">
+        <a href="https://github.com/starfysh-tech/agent-feed" class="btn-primary">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Star on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span>Agent Feed by Starfysh</span>
+    <ul class="footer-links">
+      <li><a href="https://github.com/starfysh-tech/agent-feed">GitHub</a></li>
+      <li><a href="https://github.com/starfysh-tech/agent-feed#readme">Documentation</a></li>
+    </ul>
+  </footer>
+
+  <script>
+    // Theme toggle
+    const toggle = document.getElementById('theme-toggle');
+    const html = document.documentElement;
+
+    // Check saved preference, then system preference
+    const saved = localStorage.getItem('theme');
+    if (saved) {
+      html.setAttribute('data-theme', saved);
+    } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+      html.setAttribute('data-theme', 'light');
+    }
+
+    toggle.addEventListener('click', () => {
+      const current = html.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+    });
+
+    // GitHub star count
+    fetch('https://api.github.com/repos/starfysh-tech/agent-feed')
+      .then(r => r.json())
+      .then(d => {
+        if (d.stargazers_count != null) {
+          const el = document.getElementById('star-count');
+          el.textContent = d.stargazers_count;
+          el.style.display = '';
+        }
+      })
+      .catch(() => {
+        document.getElementById('star-count').style.display = 'none';
+      });
+
+    // Screenshot tabs
+    document.querySelectorAll('.screenshot-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.screenshot-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.screenshot-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // Scroll reveal
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    // ─── Proposal 2: Flag dot pulse on reveal ───
+    const flagObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const dots = entry.target.querySelectorAll('.flag-dot');
+          dots.forEach((dot, i) => {
+            setTimeout(() => dot.classList.add('pulse'), 300 + i * 80);
+          });
+          flagObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
+
+    const flagGrid = document.querySelector('.flags-grid.reveal-stagger');
+    if (flagGrid) flagObserver.observe(flagGrid);
+
+    // ─── Proposal 3: Hero typing effect (play once) ───
+    (function() {
+      const typingText = 'Can you see them?';
+      const el = document.getElementById('typed-target');
+      if (!el) return;
+
+      let i = 0;
+      function typeChar() {
+        if (i < typingText.length) {
+          el.textContent += typingText[i];
+          i++;
+          setTimeout(typeChar, 70 + Math.random() * 40);
+        } else {
+          el.classList.add('done', 'blink-final');
+          setTimeout(() => {
+            el.classList.remove('blink-final');
+            el.classList.add('done');
+          }, 2400);
+        }
+      }
+      setTimeout(typeChar, 800);
+    })();
+
+    // ─── Proposal 4: Counter animation (play once) ───
+    const counterObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          counterObserver.unobserve(entry.target);
+          const decisionsEl = document.getElementById('counter-decisions');
+          const reviewedEl = document.getElementById('counter-reviewed');
+          if (!decisionsEl || !reviewedEl) return;
+
+          const target = 5013;
+          const duration = 2200;
+          const start = performance.now();
+
+          function tick(now) {
+            const elapsed = now - start;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            const current = Math.round(eased * target);
+            decisionsEl.textContent = current;
+            reviewedEl.textContent = '0';
+            if (progress < 1) {
+              requestAnimationFrame(tick);
+            }
+          }
+          requestAnimationFrame(tick);
+        }
+      });
+    }, { threshold: 0.1 });
+
+    const counterDemo = document.querySelector('.counter-demo');
+    if (counterDemo) counterObserver.observe(counterDemo);
+
+    // Screenshot parallax tilt
+    document.querySelectorAll('.parallax-tilt').forEach(frame => {
+      frame.addEventListener('mousemove', (e) => {
+        const rect = frame.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width;
+        const y = (e.clientY - rect.top) / rect.height;
+        const rotateY = (x - 0.5) * 7;
+        const rotateX = (0.5 - y) * 7;
+        frame.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+        frame.style.boxShadow = `${rotateY * -2}px ${rotateX * 2}px 40px rgba(0,0,0,0.3), 0 16px 48px rgba(0,0,0,0.35)`;
+      });
+      frame.addEventListener('mouseleave', () => {
+        frame.style.transform = '';
+        frame.style.boxShadow = '';
+      });
+    });
+  </script>
+
+</body>
+</html>
