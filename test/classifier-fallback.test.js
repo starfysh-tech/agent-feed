@@ -25,20 +25,22 @@ describe('validateClassifierWithFallback', () => {
       throw new Error('unreachable');
     };
 
-    // Simulate no API key
     const savedKey = process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      delete process.env.ANTHROPIC_API_KEY;
 
-    const result = await validateClassifierWithFallback(
-      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
-      mockFetch,
-    );
+      const result = await validateClassifierWithFallback(
+        { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+        mockFetch,
+      );
 
-    if (savedKey) process.env.ANTHROPIC_API_KEY = savedKey;
-
-    assert.equal(result.ok, true);
-    assert.equal(result.provider, 'ollama');
-    assert.ok(result.label.includes('ollama'));
+      assert.equal(result.ok, true);
+      assert.equal(result.provider, 'ollama');
+      assert.ok(result.label.includes('ollama'));
+    } finally {
+      if (savedKey !== undefined) process.env.ANTHROPIC_API_KEY = savedKey;
+      else delete process.env.ANTHROPIC_API_KEY;
+    }
   });
 
   it('falls back to lmstudio when ollama also fails', async () => {
@@ -48,55 +50,64 @@ describe('validateClassifierWithFallback', () => {
     };
 
     const savedKey = process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      delete process.env.ANTHROPIC_API_KEY;
 
-    const result = await validateClassifierWithFallback(
-      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
-      mockFetch,
-    );
+      const result = await validateClassifierWithFallback(
+        { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+        mockFetch,
+      );
 
-    if (savedKey) process.env.ANTHROPIC_API_KEY = savedKey;
-
-    assert.equal(result.ok, true);
-    assert.equal(result.provider, 'lmstudio');
-    assert.ok(result.label.includes('lmstudio'));
+      assert.equal(result.ok, true);
+      assert.equal(result.provider, 'lmstudio');
+      assert.ok(result.label.includes('lmstudio'));
+    } finally {
+      if (savedKey !== undefined) process.env.ANTHROPIC_API_KEY = savedKey;
+      else delete process.env.ANTHROPIC_API_KEY;
+    }
   });
 
   it('falls back to anthropic api key when local providers fail', async () => {
     const mockFetch = async () => { throw new Error('unreachable'); };
 
     const savedKey = process.env.ANTHROPIC_API_KEY;
-    process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
+    try {
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-test-key';
 
-    const result = await validateClassifierWithFallback(
-      { provider: 'ollama', model: 'llama3.1', base_url: 'http://localhost:11434' },
-      mockFetch,
-    );
+      const result = await validateClassifierWithFallback(
+        { provider: 'ollama', model: 'llama3.1', base_url: 'http://localhost:11434' },
+        mockFetch,
+      );
 
-    process.env.ANTHROPIC_API_KEY = savedKey ?? '';
-
-    assert.equal(result.ok, true);
-    assert.equal(result.provider, 'anthropic');
-    assert.ok(result.label.includes('anthropic'));
+      assert.equal(result.ok, true);
+      assert.equal(result.provider, 'anthropic');
+      assert.ok(result.label.includes('anthropic'));
+    } finally {
+      if (savedKey !== undefined) process.env.ANTHROPIC_API_KEY = savedKey;
+      else delete process.env.ANTHROPIC_API_KEY;
+    }
   });
 
   it('fails with descriptive message when all providers fail', async () => {
     const mockFetch = async () => { throw new Error('connection refused'); };
 
     const savedKey = process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      delete process.env.ANTHROPIC_API_KEY;
 
-    const result = await validateClassifierWithFallback(
-      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
-      mockFetch,
-    );
+      const result = await validateClassifierWithFallback(
+        { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+        mockFetch,
+      );
 
-    if (savedKey) process.env.ANTHROPIC_API_KEY = savedKey;
-
-    assert.equal(result.ok, false);
-    assert.ok(result.reason.includes('anthropic'));
-    assert.ok(result.reason.includes('ollama'));
-    assert.ok(result.reason.includes('lmstudio'));
+      assert.equal(result.ok, false);
+      assert.ok(result.reason.includes('anthropic'));
+      assert.ok(result.reason.includes('ollama'));
+      assert.ok(result.reason.includes('lmstudio'));
+    } finally {
+      if (savedKey !== undefined) process.env.ANTHROPIC_API_KEY = savedKey;
+      else delete process.env.ANTHROPIC_API_KEY;
+    }
   });
 
   it('returns effective config so classifier can be built with correct provider', async () => {
@@ -106,17 +117,20 @@ describe('validateClassifierWithFallback', () => {
     };
 
     const savedKey = process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      delete process.env.ANTHROPIC_API_KEY;
 
-    const result = await validateClassifierWithFallback(
-      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
-      mockFetch,
-    );
+      const result = await validateClassifierWithFallback(
+        { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+        mockFetch,
+      );
 
-    if (savedKey) process.env.ANTHROPIC_API_KEY = savedKey;
-
-    assert.ok(result.effectiveConfig);
-    assert.equal(result.effectiveConfig.provider, 'ollama');
-    assert.ok(result.effectiveConfig.base_url);
+      assert.ok(result.effectiveConfig);
+      assert.equal(result.effectiveConfig.provider, 'ollama');
+      assert.ok(result.effectiveConfig.base_url);
+    } finally {
+      if (savedKey !== undefined) process.env.ANTHROPIC_API_KEY = savedKey;
+      else delete process.env.ANTHROPIC_API_KEY;
+    }
   });
 });

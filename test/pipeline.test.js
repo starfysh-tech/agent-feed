@@ -1,29 +1,14 @@
-import { describe, it, before, after } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { Pipeline } from '../src/pipeline.js';
 import { Database } from '../src/storage/database.js';
 
 describe('Pipeline', () => {
-  let tmpDir;
-  let db;
-  let pipeline;
-
-  before(async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-feed-pipeline-'));
-    db = new Database(path.join(tmpDir, 'test.db'));
-    await db.init();
-    pipeline = new Pipeline({ db, classifierFn: null });
-  });
-
-  after(async () => {
-    await db.close();
-    fs.rmSync(tmpDir, { recursive: true });
-  });
-
   it('processes a claude capture and writes a record to db', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db, classifierFn: null });
+
     const capture = {
       timestamp: new Date().toISOString(),
       host: 'api.anthropic.com',
@@ -52,9 +37,15 @@ describe('Pipeline', () => {
     assert.equal(records[0].model, 'claude-sonnet-4-6');
     assert.equal(records[0].token_count, 150);
     assert.equal(records[0].raw_response, capture.rawResponse);
+
+    await db.close();
   });
 
   it('increments turn_index for subsequent turns in same session', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db, classifierFn: null });
+
     const sessionId = 'msg_multi_turn';
     const makeCapture = (text) => ({
       timestamp: new Date().toISOString(),
@@ -81,9 +72,15 @@ describe('Pipeline', () => {
     assert.equal(records[0].turn_index, 1);
     assert.equal(records[1].turn_index, 2);
     assert.equal(records[2].turn_index, 3);
+
+    await db.close();
   });
 
   it('skips non-200 responses', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db, classifierFn: null });
+
     const before = await db.listSessions();
     await pipeline.process({
       timestamp: new Date().toISOString(),
@@ -97,9 +94,15 @@ describe('Pipeline', () => {
     });
     const after = await db.listSessions();
     assert.equal(before.length, after.length);
+
+    await db.close();
   });
 
   it('skips unknown agents', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db, classifierFn: null });
+
     const before = await db.listSessions();
     await pipeline.process({
       timestamp: new Date().toISOString(),
@@ -113,18 +116,23 @@ describe('Pipeline', () => {
     });
     const after = await db.listSessions();
     assert.equal(before.length, after.length);
+
+    await db.close();
   });
 
   it('calls classifierFn with response content when provided', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+
     const classified = [];
     const mockClassifier = async (content) => {
       classified.push(content);
       return { response_summary: 'mock summary', flags: [] };
     };
 
-    const pipelineWithClassifier = new Pipeline({ db, classifierFn: mockClassifier });
+    const pipeline = new Pipeline({ db, classifierFn: mockClassifier });
 
-    await pipelineWithClassifier.process({
+    await pipeline.process({
       timestamp: new Date().toISOString(),
       host: 'api.anthropic.com',
       path: '/v1/messages',
@@ -142,9 +150,14 @@ describe('Pipeline', () => {
 
     assert.equal(classified.length, 1);
     assert.ok(classified[0].includes('postgres'));
+
+    await db.close();
   });
 
   it('stores classifier flags in db', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+
     const mockClassifier = async () => ({
       response_summary: 'agent made a decision',
       flags: [
@@ -153,9 +166,9 @@ describe('Pipeline', () => {
       ],
     });
 
-    const pipelineWithClassifier = new Pipeline({ db, classifierFn: mockClassifier });
+    const pipeline = new Pipeline({ db, classifierFn: mockClassifier });
 
-    await pipelineWithClassifier.process({
+    await pipeline.process({
       timestamp: new Date().toISOString(),
       host: 'api.anthropic.com',
       path: '/v1/messages',
@@ -178,6 +191,8 @@ describe('Pipeline', () => {
     assert.equal(flags[0].type, 'decision');
     assert.equal(flags[1].type, 'assumption');
     assert.equal(flags[0].review_status, 'unreviewed');
+
+    await db.close();
   });
 
   it('groups claude turns by request metadata session_id', async () => {
@@ -214,6 +229,8 @@ describe('Pipeline', () => {
     assert.equal(records.length, 2);
     assert.equal(records[0].turn_index, 1);
     assert.equal(records[1].turn_index, 2);
+
+    await db.close();
   });
 
   it('trims stored raw_request to last 2 messages when conversation has history', async () => {
@@ -266,6 +283,8 @@ describe('Pipeline', () => {
     assert.equal(stored.model, undefined);
     assert.equal(stored.tools, undefined);
     assert.equal(stored.system, undefined);
+
+    await db.close();
   });
 
   it('preserves raw_request unchanged when messages array has 2 or fewer entries', async () => {
@@ -300,6 +319,8 @@ describe('Pipeline', () => {
     const records = await db.getSession(sessionId);
     // When <= 2 messages, raw_request stored unchanged (with tools, system, etc.)
     assert.equal(records[0].raw_request, rawRequest);
+
+    await db.close();
   });
 
   it('preserves raw_request unchanged when no messages array present', async () => {
@@ -333,6 +354,8 @@ describe('Pipeline', () => {
     const records = await db.getSession(sessionId);
     assert.equal(records.length, 1);
     assert.equal(records[0].raw_request, rawRequest);
+
+    await db.close();
   });
 
   it('extracts working directory from request system prompt for repo tagging', async () => {
@@ -364,5 +387,7 @@ describe('Pipeline', () => {
     const records = await db.getSession(sessionId);
     assert.equal(records.length, 1);
     assert.equal(records[0].working_directory, '/Users/dev/Code/mqol-db');
+
+    await db.close();
   });
 });
