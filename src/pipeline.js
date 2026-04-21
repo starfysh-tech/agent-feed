@@ -5,6 +5,25 @@ import { randomUUID } from 'node:crypto';
 // Track turn counts per session in memory
 const sessionTurnCounts = new Map();
 
+// Extract the agent's working directory from the request system prompt.
+// Claude Code includes "Primary working directory: /path/to/repo" in the system prompt.
+function extractWorkingDirectory(rawRequest) {
+  if (!rawRequest) return null;
+  try {
+    const parsed = JSON.parse(rawRequest);
+    const system = parsed?.system;
+    if (!system) return null;
+    const parts = Array.isArray(system) ? system : [system];
+    for (const part of parts) {
+      const text = typeof part === 'string' ? part : part?.text;
+      if (!text) continue;
+      const match = text.match(/Primary working directory:\s*(.+)/);
+      if (match) return match[1].trim();
+    }
+  } catch {}
+  return null;
+}
+
 // Allowlist: keep only last 2 messages + metadata. Drops tools (~138KB),
 // system (~15KB), model, max_tokens, etc. — all redundant across turns.
 // Only applies to Anthropic/OpenAI requests (Gemini uses `contents`, not `messages`).
@@ -71,8 +90,9 @@ export class Pipeline {
       }
     }
 
-    // Collect git context
-    const gitCtx = await getGitContext(process.cwd());
+    // Collect git context from the agent's working directory (not the proxy's)
+    const agentCwd = extractWorkingDirectory(capture.rawRequest) ?? process.cwd();
+    const gitCtx = await getGitContext(agentCwd);
 
     // Build and insert record
     const recordId = await this.db.insertRecord({
@@ -80,7 +100,7 @@ export class Pipeline {
       agent: adapter.name,
       session_id: sessionId,
       turn_index: turnIndex,
-      working_directory: process.cwd(),
+      working_directory: agentCwd,
       repo: gitCtx.repo,
       git_branch: gitCtx.git_branch,
       git_commit: gitCtx.git_commit,

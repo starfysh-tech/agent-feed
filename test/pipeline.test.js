@@ -334,4 +334,35 @@ describe('Pipeline', () => {
     assert.equal(records.length, 1);
     assert.equal(records[0].raw_request, rawRequest);
   });
+
+  it('extracts working directory from request system prompt for repo tagging', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+    const pipeline = new Pipeline({ db });
+
+    const sessionId = 'eeeeeeee-ffff-0000-1111-333333333333';
+    await pipeline.process({
+      timestamp: new Date().toISOString(),
+      host: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      requestHeaders: {},
+      rawRequest: JSON.stringify({
+        messages: [{ role: 'user', content: 'hello' }],
+        system: [{ type: 'text', text: 'You are Claude Code.\n\nPrimary working directory: /Users/dev/Code/mqol-db\n  - Is a git repository: true' }],
+        metadata: { user_id: JSON.stringify({ session_id: sessionId }) },
+      }),
+      rawResponse: JSON.stringify({
+        id: 'msg_cwd_test',
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text: 'hello' }],
+        usage: { input_tokens: 5, output_tokens: 5 },
+      }),
+      statusCode: 200,
+    });
+
+    const records = await db.getSession(sessionId);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].working_directory, '/Users/dev/Code/mqol-db');
+  });
 });
