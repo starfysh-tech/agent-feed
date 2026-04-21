@@ -48,9 +48,16 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
 
   const allReviewed = flags.every((f) => f.review_status !== "unreviewed");
 
+  const [showFullText, setShowFullText] = useState(false);
+  const responseText = record.response_text;
+  // Truncate long response text to first 500 chars for preview
+  const previewText = responseText && responseText.length > 500
+    ? responseText.slice(0, 500) + "..."
+    : responseText;
+
   return (
     <div className={`mb-5 ${allReviewed ? "opacity-50 hover:opacity-75 transition-opacity" : ""}`}>
-      {/* Context: what the agent did — this is the evidence for the flags below */}
+      {/* Summary line + controls */}
       <div className="flex items-start justify-between gap-4 mb-1.5">
         <p className="text-sm text-foreground leading-relaxed">
           {record.response_summary}
@@ -69,6 +76,21 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
           </Button>
         </div>
       </div>
+
+      {/* Actual agent response text — the source material for the flags */}
+      {responseText && (
+        <div className="mb-2 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap bg-card/50 rounded-md p-3 max-h-48 overflow-y-auto">
+          {showFullText ? responseText : previewText}
+          {responseText.length > 500 && (
+            <button
+              onClick={() => setShowFullText(!showFullText)}
+              className="ml-1 text-primary font-mono text-[10px] hover:underline cursor-pointer"
+            >
+              {showFullText ? "less" : "more"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Flags — directly under the context that produced them */}
       <div className="border border-border rounded-md overflow-hidden divide-y divide-border">

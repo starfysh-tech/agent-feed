@@ -36,6 +36,7 @@ const SCHEMA = `
     git_commit TEXT,
     request_summary TEXT,
     response_summary TEXT NOT NULL,
+    response_text TEXT,
     raw_request TEXT,
     raw_response TEXT NOT NULL,
     token_count INTEGER,
@@ -49,6 +50,7 @@ const SCHEMA = `
     content TEXT NOT NULL,
     confidence REAL NOT NULL,
     review_status TEXT NOT NULL DEFAULT 'unreviewed',
+    context TEXT,
     reviewer_note TEXT,
     outcome TEXT,
     FOREIGN KEY (record_id) REFERENCES records(id)
@@ -71,6 +73,15 @@ export class Database {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(SCHEMA);
+    // Migrations: add columns that may be absent in existing DBs
+    const flagCols = this.db.pragma('table_info(flags)').map(c => c.name);
+    if (!flagCols.includes('context')) {
+      this.db.exec('ALTER TABLE flags ADD COLUMN context TEXT');
+    }
+    const recordCols = this.db.pragma('table_info(records)').map(c => c.name);
+    if (!recordCols.includes('response_text')) {
+      this.db.exec('ALTER TABLE records ADD COLUMN response_text TEXT');
+    }
   }
 
   async close() {
@@ -86,12 +97,12 @@ export class Database {
       `INSERT INTO records (
         id, timestamp, agent, agent_version, session_id, turn_index,
         repo, working_directory, git_branch, git_commit,
-        request_summary, response_summary, raw_request, raw_response,
+        request_summary, response_summary, response_text, raw_request, raw_response,
         token_count, model
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
         ?, ?
       )`
     ).run(
@@ -107,6 +118,7 @@ export class Database {
       record.git_commit ?? null,
       record.request_summary ?? null,
       record.response_summary,
+      record.response_text ?? null,
       record.raw_request ?? null,
       record.raw_response,
       record.token_count ?? null,
@@ -121,9 +133,9 @@ export class Database {
     }
     const id = randomUUID();
     this.db.prepare(
-      `INSERT INTO flags (id, record_id, type, content, confidence, review_status)
-       VALUES (?, ?, ?, ?, ?, 'unreviewed')`
-    ).run(id, flag.record_id, flag.type, flag.content, flag.confidence);
+      `INSERT INTO flags (id, record_id, type, content, context, confidence, review_status)
+       VALUES (?, ?, ?, ?, ?, ?, 'unreviewed')`
+    ).run(id, flag.record_id, flag.type, flag.content, flag.context ?? null, flag.confidence);
     return id;
   }
 

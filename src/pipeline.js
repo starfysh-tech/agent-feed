@@ -85,6 +85,7 @@ export class Pipeline {
       git_branch: gitCtx.git_branch,
       git_commit: gitCtx.git_commit,
       response_summary: responseSummary,
+      response_text: content,
       raw_request: trimRequestForStorage(capture.rawRequest),
       raw_response: capture.rawResponse,
       token_count: tokenCount,
@@ -98,6 +99,7 @@ export class Pipeline {
           record_id: recordId,
           type: flag.type,
           content: flag.content,
+          context: flag.context,
           confidence: flag.confidence,
         });
       } catch {

@@ -35,6 +35,7 @@ export interface Record {
   git_commit: string | null;
   request_summary: string | null;
   response_summary: string;
+  response_text: string | null;
   raw_request: string | null;
   raw_response: string;
   token_count: number | null;
