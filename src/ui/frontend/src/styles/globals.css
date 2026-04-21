@@ -1,1 +1,56 @@
 @import "tailwindcss";
+
+@theme {
+  --color-flag-decision: #4a9eff;
+  --color-flag-decision-bg: #1a2a3a;
+  --color-flag-assumption: #f08030;
+  --color-flag-assumption-bg: #2a1a0f;
+  --color-flag-architecture: #3dd68c;
+  --color-flag-architecture-bg: #1a2a1a;
+  --color-flag-pattern: #a070e8;
+  --color-flag-pattern-bg: #2a1a2a;
+  --color-flag-dependency: #40b0f0;
+  --color-flag-dependency-bg: #0f1a2a;
+  --color-flag-tradeoff: #f0c040;
+  --color-flag-tradeoff-bg: #2a2a0f;
+  --color-flag-constraint: #f05060;
+  --color-flag-constraint-bg: #2a1010;
+  --color-flag-workaround: #d0a030;
+  --color-flag-workaround-bg: #1a1a0f;
+  --color-flag-risk: #f06070;
+  --color-flag-risk-bg: #2a1010;
+}
+
+@layer base {
+  :root {
+    --background: 222.2 47.4% 4.2%;
+    --foreground: 210 20% 90%;
+    --card: 222.2 47.4% 6.2%;
+    --card-foreground: 210 20% 90%;
+    --popover: 222.2 47.4% 6.2%;
+    --popover-foreground: 210 20% 90%;
+    --primary: 213 94% 64%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217.2 32.6% 12%;
+    --secondary-foreground: 210 20% 90%;
+    --muted: 217.2 32.6% 12%;
+    --muted-foreground: 215 16% 52%;
+    --accent: 217.2 32.6% 15%;
+    --accent-foreground: 210 20% 90%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 210 20% 90%;
+    --border: 217.2 20% 16%;
+    --input: 217.2 20% 16%;
+    --ring: 213 94% 64%;
+    --radius: 0.375rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "IBM Plex Sans", sans-serif;
+  }
+}
