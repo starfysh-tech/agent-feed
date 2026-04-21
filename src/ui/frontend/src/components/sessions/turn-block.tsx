@@ -1,4 +1,6 @@
 import { useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { FlagCard } from "@/components/flags/flag-card";
 import { fetchRawRecord } from "@/api/client";
@@ -17,6 +19,7 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
   const [rawContent, setRawContent] = useState<string | null>(null);
   const [rawLoading, setRawLoading] = useState(false);
   const [expandedFlagId, setExpandedFlagId] = useState<string | null>(null);
+  const [showFullText, setShowFullText] = useState(false);
 
   async function toggleRaw() {
     if (rawVisible) { setRawVisible(false); return; }
@@ -48,12 +51,11 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
 
   const allReviewed = flags.every((f) => f.review_status !== "unreviewed");
 
-  const [showFullText, setShowFullText] = useState(false);
   const responseText = record.response_text;
-  // Truncate long response text to first 500 chars for preview
   const previewText = responseText && responseText.length > 500
-    ? responseText.slice(0, 500) + "..."
+    ? responseText.slice(0, 500)
     : responseText;
+  const isLong = (responseText?.length ?? 0) > 500;
 
   return (
     <div className={`mb-5 ${allReviewed ? "opacity-50 hover:opacity-75 transition-opacity" : ""}`}>
@@ -77,16 +79,35 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
         </div>
       </div>
 
-      {/* Actual agent response text — the source material for the flags */}
+      {/* Agent response text — rendered as markdown */}
       {responseText && (
-        <div className="mb-2 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap bg-card/50 rounded-md p-3 max-h-48 overflow-y-auto">
-          {showFullText ? responseText : previewText}
-          {responseText.length > 500 && (
+        <div className="mb-2 bg-card/50 rounded-md p-3 max-h-64 overflow-y-auto">
+          <div className="prose prose-invert prose-xs max-w-none
+            [&_table]:text-[11px] [&_table]:font-mono [&_table]:border-collapse
+            [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:bg-muted
+            [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1
+            [&_p]:text-xs [&_p]:text-muted-foreground [&_p]:leading-relaxed [&_p]:my-1
+            [&_code]:text-[11px] [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded
+            [&_pre]:text-[11px] [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-x-auto
+            [&_ul]:text-xs [&_ul]:text-muted-foreground [&_ul]:my-1 [&_ul]:pl-4
+            [&_ol]:text-xs [&_ol]:text-muted-foreground [&_ol]:my-1 [&_ol]:pl-4
+            [&_li]:my-0.5
+            [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:text-foreground [&_h1]:mt-2 [&_h1]:mb-1
+            [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:text-foreground [&_h2]:mt-2 [&_h2]:mb-1
+            [&_h3]:text-xs [&_h3]:font-medium [&_h3]:text-foreground [&_h3]:mt-1 [&_h3]:mb-0.5
+            [&_strong]:text-foreground
+            [&_a]:text-primary [&_a]:no-underline hover:[&_a]:underline
+          ">
+            <Markdown remarkPlugins={[remarkGfm]}>
+              {showFullText ? responseText : (previewText ?? "")}
+            </Markdown>
+          </div>
+          {isLong && (
             <button
               onClick={() => setShowFullText(!showFullText)}
-              className="ml-1 text-primary font-mono text-[10px] hover:underline cursor-pointer"
+              className="mt-1 text-primary font-mono text-[10px] hover:underline cursor-pointer"
             >
-              {showFullText ? "less" : "more"}
+              {showFullText ? "show less" : "show more"}
             </button>
           )}
         </div>
