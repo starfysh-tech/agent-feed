@@ -332,6 +332,36 @@ async function cmdStop() {
   console.log('Run: unset ' + PROXY_ENV_VARS.join(' '));
 }
 
+async function cmdRestart() {
+  const pid = readPid();
+  if (pid && isProcessRunning(pid)) {
+    console.log('Stopping Agent Feed...');
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch (err) {
+      console.error(`Failed to stop Agent Feed: ${err.message}`);
+      process.exit(1);
+    }
+
+    const stopStart = Date.now();
+    while (isProcessRunning(pid) && Date.now() - stopStart < 5000) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (isProcessRunning(pid)) {
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    clearState();
+    console.log(`Agent Feed stopped (PID ${pid})`);
+  } else {
+    if (pid) clearState(); // clean up stale PID
+    console.log('Agent Feed is not running, starting fresh...');
+  }
+
+  await cmdStart();
+}
+
 async function cmdEval(subcommand) {
   const validSubcommands = ['classifier', 'show'];
   if (!validSubcommands.includes(subcommand)) {
@@ -403,7 +433,7 @@ function cmdShellInit() {
 agent-feed() {
   command agent-feed "$@"
   local rc=$?
-  if [[ "$1" == "start" || "$1" == "stop" ]]; then
+  if [[ "$1" == "start" || "$1" == "stop" || "$1" == "restart" ]]; then
     eval "$(command agent-feed env)"
   fi
   return $rc
@@ -436,6 +466,9 @@ switch (command) {
   case 'stop':
     await cmdStop();
     break;
+  case 'restart':
+    await cmdRestart();
+    break;
   case 'eval':
     await cmdEval(args[1]);
     break;
@@ -450,6 +483,7 @@ switch (command) {
     console.log('  agent-feed start               Start proxy, classifier, and UI in background');
     console.log('  agent-feed start --verbose      Start in foreground with diagnostic logging');
     console.log('  agent-feed stop                 Stop all services');
+    console.log('  agent-feed restart              Stop and restart all services');
     console.log('  agent-feed eval classifier      Run classifier precision/recall eval');
     console.log('  agent-feed eval show            Show missed flags and false positives');
     console.log('  agent-feed env                  Print shell env vars (source with eval)');
