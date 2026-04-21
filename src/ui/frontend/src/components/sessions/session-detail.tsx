@@ -39,7 +39,8 @@ export function SessionDetail({ sessionId }: SessionDetailProps) {
   if (accepted > 0) parts.push(`${accepted} accepted`);
   if (needsChange > 0) parts.push(`${needsChange} needs change`);
   if (falsePos > 0) parts.push(`${falsePos} FP`);
-  parts.push(`${records.length} turn${records.length !== 1 ? "s" : ""}`);
+  const turnsWithFlags = records.filter((r) => (r.flags?.length ?? 0) > 0).length;
+  parts.push(`${turnsWithFlags} turn${turnsWithFlags !== 1 ? "s" : ""} with flags`);
 
   return (
     <div>
@@ -78,8 +79,8 @@ export function SessionDetail({ sessionId }: SessionDetailProps) {
         </div>
       )}
 
-      {/* Turns */}
-      {records.map((r) => (
+      {/* Turns — newest first */}
+      {[...records].reverse().map((r) => (
         <TurnBlock
           key={r.id}
           record={r}

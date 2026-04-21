@@ -35,6 +35,9 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
 
   const flags = record.flags ?? [];
 
+  // Skip turns with no flags — they're noise in the review view
+  if (!flags.length) return null;
+
   // Sort: unreviewed first, then by confidence ascending (least confident = needs most attention)
   const sortedFlags = [...flags].sort((a, b) => {
     const aReviewed = a.review_status !== "unreviewed" ? 1 : 0;
@@ -43,45 +46,43 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
     return a.confidence - b.confidence;
   });
 
+  const allReviewed = flags.every((f) => f.review_status !== "unreviewed");
+
   return (
-    <div className="mb-4">
-      {/* Turn header */}
-      <div className="flex items-center justify-between px-1 mb-1.5">
-        <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wide">
-          Turn {record.turn_index} &middot; {formatTime(record.timestamp)}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="font-mono text-[10px] text-muted-foreground h-5 px-1.5"
-          onClick={toggleRaw}
-        >
-          raw
-        </Button>
+    <div className={`mb-5 ${allReviewed ? "opacity-50 hover:opacity-75 transition-opacity" : ""}`}>
+      {/* Context: what the agent did — this is the evidence for the flags below */}
+      <div className="flex items-start justify-between gap-4 mb-1.5">
+        <p className="text-sm text-foreground leading-relaxed">
+          {record.response_summary}
+        </p>
+        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+          <span className="font-mono text-[10px] text-muted-foreground">
+            {formatTime(record.timestamp)}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="font-mono text-[10px] text-muted-foreground h-5 px-1.5"
+            onClick={toggleRaw}
+          >
+            raw
+          </Button>
+        </div>
       </div>
 
-      {/* Summary */}
-      <p className="text-sm text-muted-foreground px-1 mb-2 leading-relaxed">
-        {record.response_summary}
-      </p>
-
-      {/* Flags */}
-      {sortedFlags.length > 0 ? (
-        <div className="border border-border rounded-md overflow-hidden divide-y divide-border">
-          {sortedFlags.map((f) => (
-            <FlagCard
-              key={f.id}
-              flag={f}
-              expanded={expandedFlagId === f.id}
-              onToggle={() => setExpandedFlagId(expandedFlagId === f.id ? null : f.id)}
-              onStatusChange={onFlagStatusChange}
-              onSaveNotes={onSaveNotes}
-            />
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground px-1">No flags extracted</p>
-      )}
+      {/* Flags — directly under the context that produced them */}
+      <div className="border border-border rounded-md overflow-hidden divide-y divide-border">
+        {sortedFlags.map((f) => (
+          <FlagCard
+            key={f.id}
+            flag={f}
+            expanded={expandedFlagId === f.id}
+            onToggle={() => setExpandedFlagId(expandedFlagId === f.id ? null : f.id)}
+            onStatusChange={onFlagStatusChange}
+            onSaveNotes={onSaveNotes}
+          />
+        ))}
+      </div>
 
       {/* Raw response */}
       {rawVisible && (
