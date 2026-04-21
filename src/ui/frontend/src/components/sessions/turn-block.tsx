@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FlagCard } from "@/components/flags/flag-card";
 import { fetchRawRecord } from "@/api/client";
@@ -17,6 +16,7 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
   const [rawVisible, setRawVisible] = useState(false);
   const [rawContent, setRawContent] = useState<string | null>(null);
   const [rawLoading, setRawLoading] = useState(false);
+  const [expandedFlagId, setExpandedFlagId] = useState<string | null>(null);
 
   async function toggleRaw() {
     if (rawVisible) { setRawVisible(false); return; }
@@ -35,29 +35,60 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
 
   const flags = record.flags ?? [];
 
+  // Sort: unreviewed first, then by confidence ascending (least confident = needs most attention)
+  const sortedFlags = [...flags].sort((a, b) => {
+    const aReviewed = a.review_status !== "unreviewed" ? 1 : 0;
+    const bReviewed = b.review_status !== "unreviewed" ? 1 : 0;
+    if (aReviewed !== bReviewed) return aReviewed - bReviewed;
+    return a.confidence - b.confidence;
+  });
+
   return (
-    <Card className="mb-4 overflow-hidden">
-      <div className="px-3.5 py-2 bg-muted border-b border-border flex justify-between items-center">
-        <span className="font-mono text-[11px] text-muted-foreground">
+    <div className="mb-4">
+      {/* Turn header */}
+      <div className="flex items-center justify-between px-1 mb-1.5">
+        <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wide">
           Turn {record.turn_index} &middot; {formatTime(record.timestamp)}
         </span>
-        <Button variant="ghost" size="sm" className="font-mono text-[11px] text-muted-foreground h-6 px-2" onClick={toggleRaw}>
-          [ raw ]
+        <Button
+          variant="ghost"
+          size="sm"
+          className="font-mono text-[10px] text-muted-foreground h-5 px-1.5"
+          onClick={toggleRaw}
+        >
+          raw
         </Button>
       </div>
-      <div className="px-3.5 py-2.5 text-sm text-muted-foreground border-b border-border">
+
+      {/* Summary */}
+      <p className="text-sm text-muted-foreground px-1 mb-2 leading-relaxed">
         {record.response_summary}
-      </div>
-      {flags.length > 0 ? (
-        flags.map((f) => <FlagCard key={f.id} flag={f} onStatusChange={onFlagStatusChange} onSaveNotes={onSaveNotes} />)
+      </p>
+
+      {/* Flags */}
+      {sortedFlags.length > 0 ? (
+        <div className="border border-border rounded-md overflow-hidden divide-y divide-border">
+          {sortedFlags.map((f) => (
+            <FlagCard
+              key={f.id}
+              flag={f}
+              expanded={expandedFlagId === f.id}
+              onToggle={() => setExpandedFlagId(expandedFlagId === f.id ? null : f.id)}
+              onStatusChange={onFlagStatusChange}
+              onSaveNotes={onSaveNotes}
+            />
+          ))}
+        </div>
       ) : (
-        <div className="px-3.5 py-2.5 text-xs text-muted-foreground">No flags extracted</div>
+        <p className="text-xs text-muted-foreground px-1">No flags extracted</p>
       )}
+
+      {/* Raw response */}
       {rawVisible && (
-        <div className="mx-3.5 mb-3.5 mt-2 bg-muted border border-border rounded-sm p-3 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap overflow-x-auto max-h-72 overflow-y-auto">
+        <div className="mt-2 bg-muted border border-border rounded-md p-3 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap overflow-x-auto max-h-72 overflow-y-auto">
           {rawLoading ? "loading..." : rawContent}
         </div>
       )}
-    </Card>
+    </div>
   );
 }

@@ -32,47 +32,62 @@ export function SessionDetail({ sessionId }: SessionDetailProps) {
     bulkUpdate.mutate({ flagIds: ids, status });
   }
 
+  // Build a compact summary string
+  const parts: string[] = [];
+  parts.push(`${allFlags.length} flag${allFlags.length !== 1 ? "s" : ""}`);
+  if (unreviewed.length > 0) parts.push(`${unreviewed.length} unreviewed`);
+  if (accepted > 0) parts.push(`${accepted} accepted`);
+  if (needsChange > 0) parts.push(`${needsChange} needs change`);
+  if (falsePos > 0) parts.push(`${falsePos} FP`);
+  parts.push(`${records.length} turn${records.length !== 1 ? "s" : ""}`);
+
   return (
     <div>
-      <div className="mb-5 pb-4 border-b border-border">
-        <h1 className="text-base font-semibold">{first.repo || sessionId}</h1>
-        <p className="text-xs text-muted-foreground font-mono mt-1">
-          {first.agent} &middot; {first.model} &middot; {formatDate(first.timestamp)}
-          {first.git_branch ? ` \u00b7 ${first.git_branch}` : ""}
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-base font-semibold tracking-tight">{first.repo || sessionId}</h1>
+        <p className="font-mono text-[11px] text-muted-foreground mt-1 leading-relaxed">
+          {first.agent} · {first.model} · {formatDate(first.timestamp)}
+          {first.git_branch ? ` · ${first.git_branch}` : ""}
+        </p>
+        <p className="font-mono text-[11px] text-muted-foreground mt-0.5">
+          {parts.join(" · ")}
         </p>
       </div>
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-3 mb-5">
-        <StatCard value={allFlags.length} label="total flags" />
-        <StatCard value={unreviewed.length} label="unreviewed" className={unreviewed.length > 0 ? "text-yellow-400" : ""} />
-        <StatCard value={accepted} label="accepted" className="text-green-400" />
-        <StatCard value={needsChange} label="needs change" className="text-yellow-400" />
-        <StatCard value={falsePos} label="false positive" className="text-red-400" />
-        <StatCard value={records.length} label="turns" />
-      </div>
-
+      {/* Bulk actions — only when there's something to triage */}
       {unreviewed.length > 0 && (
-        <div className="flex gap-2 items-center mb-4 p-3 px-4 bg-muted border border-border rounded-md">
-          <span className="text-sm text-muted-foreground">{unreviewed.length} unreviewed flags</span>
-          <Button variant="outline" size="sm" className="font-mono text-[11px] h-7 border-green-500 text-green-400 bg-green-500/10" onClick={() => handleBulk("accepted")}>accept all</Button>
-          <Button variant="outline" size="sm" className="font-mono text-[11px] h-7 border-red-500 text-red-400" onClick={() => handleBulk("false_positive")}>mark all FP</Button>
+        <div className="flex items-center gap-3 mb-5 font-mono text-[11px]">
+          <span className="text-muted-foreground">{unreviewed.length} unreviewed</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="font-mono text-[10px] h-6 px-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+            onClick={() => handleBulk("accepted")}
+          >
+            accept all
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="font-mono text-[10px] h-6 px-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+            onClick={() => handleBulk("false_positive")}
+          >
+            mark all FP
+          </Button>
         </div>
       )}
 
+      {/* Turns */}
       {records.map((r) => (
-        <TurnBlock key={r.id} record={r} sessionId={sessionId}
+        <TurnBlock
+          key={r.id}
+          record={r}
+          sessionId={sessionId}
           onFlagStatusChange={(flagId, status) => updateStatus.mutate({ flagId, status })}
-          onSaveNotes={(flagId, note, outcome) => saveNotes.mutate({ flagId, reviewerNote: note, outcome })} />
+          onSaveNotes={(flagId, note, outcome) => saveNotes.mutate({ flagId, reviewerNote: note, outcome })}
+        />
       ))}
-    </div>
-  );
-}
-
-function StatCard({ value, label, className }: { value: number; label: string; className?: string }) {
-  return (
-    <div className="bg-muted border border-border rounded-md p-3 px-4">
-      <div className={`font-mono text-xl font-medium leading-tight ${className ?? ""}`}>{value}</div>
-      <div className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">{label}</div>
     </div>
   );
 }
