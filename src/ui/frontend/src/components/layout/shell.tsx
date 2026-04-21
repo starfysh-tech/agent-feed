@@ -4,9 +4,10 @@ import { FilterBar } from "./filter-bar";
 interface ShellProps {
   currentView: string;
   onViewChange: (view: string) => void;
-  agent: string;
+  models: string[];
+  selectedModel: string;
   dateFrom: string;
-  onAgentChange: (value: string) => void;
+  onModelChange: (value: string) => void;
   onDateChange: (value: string) => void;
   sidebar: ReactNode;
   children: ReactNode;
@@ -15,9 +16,10 @@ interface ShellProps {
 export function Shell({
   currentView,
   onViewChange,
-  agent,
+  models,
+  selectedModel,
   dateFrom,
-  onAgentChange,
+  onModelChange,
   onDateChange,
   sidebar,
   children,
@@ -33,13 +35,13 @@ export function Shell({
         />
       )}
 
-      {/* Sidebar — repo-first navigation */}
+      {/* Sidebar — narrow session rail */}
       <div
-        className={`w-72 min-w-72 bg-card border-r border-border flex flex-col overflow-hidden
+        className={`w-[200px] min-w-[200px] bg-card border-r border-border flex flex-col overflow-hidden
           fixed top-0 left-0 bottom-0 z-20 transition-transform lg:relative lg:translate-x-0
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
-        <div className="p-3 px-4 border-b border-border flex items-center justify-between">
+        <div className="p-2 px-3 border-b border-border flex items-center justify-between">
           <span className="font-mono text-[10px] font-medium text-muted-foreground tracking-wider uppercase">
             Agent Feed
           </span>
@@ -55,54 +57,53 @@ export function Shell({
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar: mobile hamburger + filters + view tabs */}
-        <div className="shrink-0 border-b border-border">
-          <div className="flex items-center gap-2">
-            {/* Mobile hamburger */}
+        {/* Top bar */}
+        <div className="shrink-0 border-b border-border flex items-center">
+          {/* Mobile hamburger */}
+          <button
+            className="lg:hidden p-2.5 cursor-pointer shrink-0"
+            onClick={() => setSidebarOpen(true)}
+          >
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <line x1="3" y1="5" x2="17" y2="5" />
+              <line x1="3" y1="10" x2="17" y2="10" />
+              <line x1="3" y1="15" x2="17" y2="15" />
+            </svg>
+          </button>
+
+          {/* Model filter + date */}
+          <div className="flex-1">
+            <FilterBar
+              models={models}
+              selectedModel={selectedModel}
+              dateFrom={dateFrom}
+              onModelChange={onModelChange}
+              onDateChange={onDateChange}
+            />
+          </div>
+
+          {/* View tabs */}
+          <div className="flex gap-1 pr-3 shrink-0">
             <button
-              className="lg:hidden p-3 cursor-pointer"
-              onClick={() => setSidebarOpen(true)}
+              onClick={() => onViewChange("sessions")}
+              className={`font-mono text-[10px] px-2 py-1 rounded-sm transition-colors cursor-pointer ${
+                currentView === "sessions"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
             >
-              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <line x1="3" y1="5" x2="17" y2="5" />
-                <line x1="3" y1="10" x2="17" y2="10" />
-                <line x1="3" y1="15" x2="17" y2="15" />
-              </svg>
+              Sessions
             </button>
-
-            {/* Filters */}
-            <div className="flex-1">
-              <FilterBar
-                agent={agent}
-                dateFrom={dateFrom}
-                onAgentChange={onAgentChange}
-                onDateChange={onDateChange}
-              />
-            </div>
-
-            {/* View tabs */}
-            <div className="flex gap-1 pr-3">
-              <button
-                onClick={() => onViewChange("sessions")}
-                className={`font-mono text-[10px] px-2.5 py-1.5 rounded-sm transition-colors cursor-pointer ${
-                  currentView === "sessions"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Sessions
-              </button>
-              <button
-                onClick={() => onViewChange("trends")}
-                className={`font-mono text-[10px] px-2.5 py-1.5 rounded-sm transition-colors cursor-pointer ${
-                  currentView === "trends"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Trends
-              </button>
-            </div>
+            <button
+              onClick={() => onViewChange("trends")}
+              className={`font-mono text-[10px] px-2 py-1 rounded-sm transition-colors cursor-pointer ${
+                currentView === "trends"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Trends
+            </button>
           </div>
         </div>
 

@@ -2,35 +2,48 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 interface FilterBarProps {
-  agent: string;
+  models: string[];
+  selectedModel: string;
   dateFrom: string;
-  onAgentChange: (value: string) => void;
+  onModelChange: (value: string) => void;
   onDateChange: (value: string) => void;
 }
 
-const AGENTS = [
-  { value: "all", label: "All" },
-  { value: "claude-code", label: "Claude" },
-  { value: "codex", label: "Codex" },
-  { value: "gemini", label: "Gemini" },
-];
+function shortModel(model: string): string {
+  return model
+    .replace(/^claude-/, "")
+    .replace(/-20\d{6}$/, "")
+    .replace("gemini-", "")
+    .replace("-preview", "");
+}
 
-export function FilterBar({ agent, dateFrom, onAgentChange, onDateChange }: FilterBarProps) {
+export function FilterBar({ models, selectedModel, dateFrom, onModelChange, onDateChange }: FilterBarProps) {
   return (
-    <div className="flex items-center gap-2 p-2 px-3 border-b border-border">
-      <div className="flex gap-1">
-        {AGENTS.map((a) => (
+    <div className="flex items-center gap-1 px-3 py-1.5">
+      <div className="flex gap-0.5 overflow-x-auto">
+        <button
+          onClick={() => onModelChange("all")}
+          className={cn(
+            "font-mono text-[10px] px-2 py-1 rounded-sm transition-colors cursor-pointer whitespace-nowrap",
+            selectedModel === "all"
+              ? "bg-primary/15 text-primary"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent",
+          )}
+        >
+          All
+        </button>
+        {models.map((m) => (
           <button
-            key={a.value}
-            onClick={() => onAgentChange(a.value)}
+            key={m}
+            onClick={() => onModelChange(m)}
             className={cn(
-              "font-mono text-[10px] px-2 py-1 rounded-sm transition-colors cursor-pointer",
-              agent === a.value
+              "font-mono text-[10px] px-2 py-1 rounded-sm transition-colors cursor-pointer whitespace-nowrap",
+              selectedModel === m
                 ? "bg-primary/15 text-primary"
                 : "text-muted-foreground hover:text-foreground hover:bg-accent",
             )}
           >
-            {a.label}
+            {shortModel(m)}
           </button>
         ))}
       </div>
@@ -38,7 +51,7 @@ export function FilterBar({ agent, dateFrom, onAgentChange, onDateChange }: Filt
         type="date"
         value={dateFrom}
         onChange={(e) => onDateChange(e.target.value)}
-        className="h-7 text-[10px] font-mono w-32 ml-auto"
+        className="h-6 text-[10px] font-mono w-28 ml-auto shrink-0"
       />
     </div>
   );
