@@ -1,6 +1,33 @@
 @import "tailwindcss";
 
 @theme {
+  /* Semantic colors using oklch for Tailwind v4 */
+  --color-background: oklch(0.145 0.014 285.8);
+  --color-foreground: oklch(0.895 0.013 236.6);
+  --color-card: oklch(0.17 0.014 285.8);
+  --color-card-foreground: oklch(0.895 0.013 236.6);
+  --color-popover: oklch(0.17 0.014 285.8);
+  --color-popover-foreground: oklch(0.895 0.013 236.6);
+  --color-primary: oklch(0.67 0.17 250);
+  --color-primary-foreground: oklch(1 0 0);
+  --color-secondary: oklch(0.22 0.014 260);
+  --color-secondary-foreground: oklch(0.895 0.013 236.6);
+  --color-muted: oklch(0.22 0.014 260);
+  --color-muted-foreground: oklch(0.556 0.022 240);
+  --color-accent: oklch(0.25 0.014 260);
+  --color-accent-foreground: oklch(0.895 0.013 236.6);
+  --color-destructive: oklch(0.55 0.2 27);
+  --color-destructive-foreground: oklch(0.895 0.013 236.6);
+  --color-border: oklch(0.28 0.01 260);
+  --color-input: oklch(0.28 0.01 260);
+  --color-ring: oklch(0.67 0.17 250);
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* Flag type colors */
   --color-flag-decision: #4a9eff;
   --color-flag-decision-bg: #1a2a3a;
   --color-flag-assumption: #f08030;
@@ -22,35 +49,15 @@
 }
 
 @layer base {
-  :root {
-    --background: 222.2 47.4% 4.2%;
-    --foreground: 210 20% 90%;
-    --card: 222.2 47.4% 6.2%;
-    --card-foreground: 210 20% 90%;
-    --popover: 222.2 47.4% 6.2%;
-    --popover-foreground: 210 20% 90%;
-    --primary: 213 94% 64%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217.2 32.6% 12%;
-    --secondary-foreground: 210 20% 90%;
-    --muted: 217.2 32.6% 12%;
-    --muted-foreground: 215 16% 52%;
-    --accent: 217.2 32.6% 15%;
-    --accent-foreground: 210 20% 90%;
-    --destructive: 0 70% 50%;
-    --destructive-foreground: 210 20% 90%;
-    --border: 217.2 20% 16%;
-    --input: 217.2 20% 16%;
-    --ring: 213 94% 64%;
-    --radius: 0.375rem;
-  }
-
   * {
-    @apply border-border;
+    border-color: var(--color-border);
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
     font-family: "IBM Plex Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
