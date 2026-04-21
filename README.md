@@ -28,16 +28,16 @@ Before a PR review, pull up the session that produced the branch and scan flagge
 ## How it works
 
 ```
-Agent → ANTHROPIC_BASE_URL=http://localhost:18080/anthropic → Proxy → api.anthropic.com
-                                                               ↓
-                                                          Classifier (Haiku / local model)
-                                                               ↓
-                                                          SQLite (~/.agent-feed/feed.db)
-                                                               ↓
-                                                          Web UI (localhost:3000)
+Agent → ANTHROPIC_BASE_URL=http://localhost:18080 → Proxy → api.anthropic.com
+                                                     ↓
+                                                Classifier (Haiku / local model)
+                                                     ↓
+                                                SQLite (~/.agent-feed/feed.db)
+                                                     ↓
+                                                Web UI (localhost:3000)
 ```
 
-The proxy uses path-based routing to determine the upstream target. Requests to `/anthropic/...` are forwarded to `api.anthropic.com`, `/openai/...` to `api.openai.com`, and `/google/...` to `generativelanguage.googleapis.com`. The path prefix is stripped before forwarding, so the upstream API receives the original path. Responses are captured asynchronously and classified. Nothing blocks the agent.
+The proxy uses header-based routing to determine the upstream target. Requests with an `anthropic-version` header go to `api.anthropic.com`. Requests with `x-goog-api-key` or `x-goog-api-client` go to Google. All other requests fall back to OpenAI. Paths pass through unchanged -- the proxy never rewrites URLs. Responses are captured asynchronously and classified. Nothing blocks the agent.
 
 ## Requirements
 
@@ -83,9 +83,11 @@ After this, `agent-feed start` automatically sets the env vars and `agent-feed s
 If you prefer not to use the shell integration:
 
 ```bash
-export ANTHROPIC_BASE_URL=http://localhost:18080/anthropic
-export OPENAI_BASE_URL=http://localhost:18080/openai
-export GOOGLE_API_BASE_URL=http://localhost:18080/google
+export ANTHROPIC_BASE_URL=http://localhost:18080
+export OPENAI_BASE_URL=http://localhost:18080/v1
+export GOOGLE_API_BASE_URL=http://localhost:18080
+export GOOGLE_GEMINI_BASE_URL=http://localhost:18080
+export CODE_ASSIST_ENDPOINT=http://localhost:18080
 ```
 
 ## CLI
@@ -94,6 +96,7 @@ export GOOGLE_API_BASE_URL=http://localhost:18080/google
 agent-feed start                 Start proxy, classifier, and UI (daemonizes)
 agent-feed start --verbose       Start in foreground with diagnostic logging
 agent-feed stop                  Stop all services
+agent-feed restart               Stop and restart all services
 agent-feed env                   Output shell export/unset commands based on proxy state
 agent-feed shell-init            Output shell integration snippet for ~/.zshrc
 agent-feed eval classifier       Precision/recall report across labeled flags
@@ -173,11 +176,12 @@ The classifier extracts the following types from every response:
 
 ## Session review
 
-The web UI is built for post-session review. Open it after a long automated run and work through flagged items chronologically.
+The web UI is a React SPA. Open it after a long automated run and work through flagged items chronologically.
 
 Each flag shows:
 - Type and confidence score
 - Extracted content
+- Supporting context (the passage from the agent response that supports the flag)
 - Accept / Needs Change / False Positive status buttons
 - Reviewer note field
 - Outcome field
@@ -216,7 +220,7 @@ A minimum of 5 samples per flag type produces reliable per-type metrics. Types b
 Once you have reviewed flags, run the eval:
 
 ```bash
-node src/cli/index.js eval classifier
+agent-feed eval classifier
 ```
 
 Output:
@@ -250,7 +254,7 @@ For a review tool, recall matters more than precision. A missed decision is wors
 To see the specific flags behind the numbers:
 
 ```bash
-node src/cli/index.js eval show
+agent-feed eval show
 ```
 
 Output:
@@ -336,9 +340,9 @@ API keys are never written to disk. Authorization headers are scrubbed from all 
 
 | Agent | Session ID source | Base URL env var |
 |---|---|---|
-| Claude Code | `id` field in response body | `ANTHROPIC_BASE_URL=http://localhost:18080/anthropic` |
-| Codex | `thread_id` from `thread.started` JSONL event | `OPENAI_BASE_URL=http://localhost:18080/openai` |
-| Gemini | Proxy-generated per connection | `GOOGLE_API_BASE_URL=http://localhost:18080/google` |
+| Claude Code | `metadata.user_id.session_id` from request (falls back to response message ID) | `ANTHROPIC_BASE_URL=http://localhost:18080` |
+| Codex | `thread_id` from `thread.started` JSONL event | `OPENAI_BASE_URL=http://localhost:18080/v1` |
+| Gemini | Proxy-generated per connection | `GOOGLE_API_BASE_URL=http://localhost:18080` |
 
 Adding a new agent requires a small adapter in `src/adapters/index.js` with two methods: `extractSessionId` and `extractContent`.
 
@@ -348,18 +352,32 @@ Adding a new agent requires a small adapter in `src/adapters/index.js` with two 
 src/
   adapters/       Per-agent session ID and content extraction
   classifier/     LLM classification prompt and provider adapters
-  cli/            start / stop / eval commands
-  proxy/          Path-based proxy with HTTPS forwarding and capture callback
+  cli/            start / stop / restart / eval commands
+  proxy/          Header-based proxy with HTTPS forwarding and capture callback
   storage/        SQLite database with full schema
-  ui/             HTTP server with REST API and HTML interface
+  ui/
+    server.js     API-only HTTP server (~150 lines), serves Vite build output as static files
+    frontend/     Vite + React 19 SPA (TypeScript, Tailwind CSS v4, shadcn/ui, TanStack Query)
   app.js          Wires all components together
   config.js       TOML config loader with defaults
   eval.js         Classifier precision/recall eval runner
   git.js          Git context collector (branch, commit, repo)
   pipeline.js     Capture → adapter → classifier → db write
 test/
-  *.test.js       83 tests covering all modules
+  *.test.js       Tests covering all modules
 ```
+
+### Frontend development
+
+The frontend is a separate Vite project with its own `package.json`:
+
+```bash
+cd src/ui/frontend && npm install   # install frontend deps
+npm run dev:ui                       # Vite dev server on :5173 (proxies /api to :3000)
+npm run build:ui                     # production build → src/ui/frontend/dist/
+```
+
+In dev mode, Vite proxies `/api` requests to the running daemon on port 3000, so you get HMR without restarting the daemon.
 
 ## Backlog
 

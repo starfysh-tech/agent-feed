@@ -16,6 +16,7 @@ node --test test/foo.test.js  # run a single test file
 agent-feed start              # start proxy + classifier + UI (daemonizes)
 agent-feed start --verbose    # foreground with logging
 agent-feed stop               # stop all services
+agent-feed restart            # stop and restart all services
 agent-feed env                # output shell export/unset commands
 agent-feed shell-init         # output shell integration snippet for .zshrc
 agent-feed eval classifier    # precision/recall report
