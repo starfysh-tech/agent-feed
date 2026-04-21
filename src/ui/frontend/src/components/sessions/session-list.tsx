@@ -24,9 +24,13 @@ export function SessionList({
         (s) =>
           (s.repo ?? "").toLowerCase().includes(search) ||
           s.session_id.toLowerCase().includes(search) ||
-          (s.agent ?? "").toLowerCase().includes(search),
+          (s.agent ?? "").toLowerCase().includes(search) ||
+          (s.model ?? "").toLowerCase().includes(search),
       )
     : sessions;
+
+  // Group by repo to show repo headers only when it changes
+  let lastRepo: string | null = null;
 
   return (
     <>
@@ -47,45 +51,55 @@ export function SessionList({
             {search ? "No matching sessions." : "No sessions yet."}
           </div>
         ) : (
-          filtered.map((s) => (
-            <button
-              key={s.session_id}
-              onClick={() => onSelectSession(s.session_id)}
-              className={`w-full text-left px-4 py-3 border-l-2 transition-colors cursor-pointer
-                ${
-                  s.session_id === activeSessionId
-                    ? "border-l-primary bg-accent"
-                    : "border-l-transparent hover:bg-accent/50"
-                }`}
-            >
-              <div className="font-mono text-xs text-primary truncate">
-                {s.repo || s.session_id}
-              </div>
-              <div className="text-[11px] text-muted-foreground mt-0.5 flex gap-2 flex-wrap">
-                <span>{s.agent || ""}</span>
-                <span>{formatDate(s.latest_timestamp)}</span>
-                {s.repo && (
-                  <span className="font-mono text-[10px]">
-                    {s.session_id.slice(0, 12)}&hellip;
-                  </span>
+          filtered.map((s) => {
+            const showRepoHeader = s.repo !== lastRepo;
+            lastRepo = s.repo;
+            const shortModel = (s.model ?? "").replace(/^claude-/, "").replace(/-20\d{6}$/, "");
+
+            return (
+              <div key={s.session_id}>
+                {showRepoHeader && s.repo && (
+                  <div className="px-4 pt-3 pb-1 font-mono text-[10px] text-muted-foreground uppercase tracking-wider">
+                    {s.repo}
+                  </div>
                 )}
+                <button
+                  onClick={() => onSelectSession(s.session_id)}
+                  className={`w-full text-left px-4 py-2 transition-colors cursor-pointer
+                    ${
+                      s.session_id === activeSessionId
+                        ? "bg-accent"
+                        : "hover:bg-accent/50"
+                    }`}
+                >
+                  {/* Primary line: date + model */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-xs text-foreground">
+                      {formatDate(s.latest_timestamp)}
+                    </span>
+                    <span className="font-mono text-[10px] text-muted-foreground truncate">
+                      {shortModel}
+                    </span>
+                  </div>
+                  {/* Secondary line: agent + badges */}
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-muted-foreground font-mono">{s.agent}</span>
+                    <span className="text-[10px] text-muted-foreground">·</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      {s.turn_count} turn{s.turn_count !== 1 ? "s" : ""}
+                    </span>
+                    {s.unreviewed_flags > 0 ? (
+                      <Badge variant="secondary" className="text-[9px] font-mono bg-primary/10 text-primary ml-auto px-1.5 py-0">
+                        {s.unreviewed_flags}
+                      </Badge>
+                    ) : (
+                      <span className="ml-auto text-[10px] text-emerald-500 font-mono">&#10003;</span>
+                    )}
+                  </div>
+                </button>
               </div>
-              <div className="flex gap-2 mt-1">
-                {s.unreviewed_flags > 0 ? (
-                  <Badge variant="secondary" className="text-[10px] font-mono bg-primary/10 text-primary">
-                    {s.unreviewed_flags} unreviewed
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="text-[10px] font-mono bg-green-500/10 text-green-400">
-                    reviewed
-                  </Badge>
-                )}
-                <Badge variant="secondary" className="text-[10px] font-mono">
-                  {s.turn_count} turn{s.turn_count !== 1 ? "s" : ""}
-                </Badge>
-              </div>
-            </button>
-          ))
+            );
+          })
         )}
       </div>
     </>
