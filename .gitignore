@@ -11,3 +11,4 @@ src/ui/frontend/tsconfig.node.tsbuildinfo
 src/ui/frontend/vite.config.d.ts
 src/ui/frontend/vite.config.js
 docs/animations-preview.html
+.claude/
