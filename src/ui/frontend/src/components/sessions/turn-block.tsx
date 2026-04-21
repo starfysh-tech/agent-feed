@@ -59,12 +59,15 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
 
   return (
     <div className={`mb-5 ${allReviewed ? "opacity-50 hover:opacity-75 transition-opacity" : ""}`}>
-      {/* Summary line + controls */}
-      <div className="flex items-start justify-between gap-4 mb-1.5">
-        <p className="text-sm text-foreground leading-relaxed">
-          {record.response_summary}
-        </p>
-        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+      {/* Summary + timestamp */}
+      <div className="flex items-start justify-between gap-4 mb-2">
+        <div>
+          <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">summary</span>
+          <p className="text-sm text-foreground leading-relaxed mt-0.5">
+            {record.response_summary}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 pt-3">
           <span className="font-mono text-[10px] text-muted-foreground">
             {formatTime(record.timestamp)}
           </span>
@@ -79,9 +82,11 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
         </div>
       </div>
 
-      {/* Agent response text — rendered as markdown */}
+      {/* Agent response — the actual message being analyzed */}
       {responseText && (
-        <div className="mb-2 bg-card/50 rounded-md p-3 max-h-64 overflow-y-auto">
+        <div className="mb-2">
+          <span className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">agent response</span>
+          <div className="mt-1 bg-card/50 border border-border/50 rounded-md p-3 max-h-64 overflow-y-auto">
           <div className="prose prose-invert prose-xs max-w-none
             [&_table]:text-[11px] [&_table]:font-mono [&_table]:border-collapse
             [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:bg-muted
@@ -110,6 +115,7 @@ export function TurnBlock({ record, sessionId, onFlagStatusChange, onSaveNotes }
               {showFullText ? "show less" : "show more"}
             </button>
           )}
+          </div>
         </div>
       )}
 

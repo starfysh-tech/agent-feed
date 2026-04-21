@@ -1,12 +1,9 @@
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 interface FilterBarProps {
   models: string[];
   selectedModel: string;
-  dateFrom: string;
   onModelChange: (value: string) => void;
-  onDateChange: (value: string) => void;
 }
 
 function shortModel(model: string): string {
@@ -17,42 +14,34 @@ function shortModel(model: string): string {
     .replace("-preview", "");
 }
 
-export function FilterBar({ models, selectedModel, dateFrom, onModelChange, onDateChange }: FilterBarProps) {
+export function FilterBar({ models, selectedModel, onModelChange }: FilterBarProps) {
   return (
-    <div className="flex items-center gap-1 px-3 py-1.5">
-      <div className="flex gap-0.5 overflow-x-auto">
+    <div className="flex items-center gap-0.5 px-3 py-1.5 overflow-x-auto">
+      <button
+        onClick={() => onModelChange("all")}
+        className={cn(
+          "font-mono text-[10px] px-2 py-1 rounded-sm transition-colors cursor-pointer whitespace-nowrap",
+          selectedModel === "all"
+            ? "bg-primary/15 text-primary"
+            : "text-muted-foreground hover:text-foreground hover:bg-accent",
+        )}
+      >
+        All
+      </button>
+      {models.map((m) => (
         <button
-          onClick={() => onModelChange("all")}
+          key={m}
+          onClick={() => onModelChange(m)}
           className={cn(
             "font-mono text-[10px] px-2 py-1 rounded-sm transition-colors cursor-pointer whitespace-nowrap",
-            selectedModel === "all"
+            selectedModel === m
               ? "bg-primary/15 text-primary"
               : "text-muted-foreground hover:text-foreground hover:bg-accent",
           )}
         >
-          All
+          {shortModel(m)}
         </button>
-        {models.map((m) => (
-          <button
-            key={m}
-            onClick={() => onModelChange(m)}
-            className={cn(
-              "font-mono text-[10px] px-2 py-1 rounded-sm transition-colors cursor-pointer whitespace-nowrap",
-              selectedModel === m
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent",
-            )}
-          >
-            {shortModel(m)}
-          </button>
-        ))}
-      </div>
-      <Input
-        type="date"
-        value={dateFrom}
-        onChange={(e) => onDateChange(e.target.value)}
-        className="h-6 text-[10px] font-mono w-28 ml-auto shrink-0"
-      />
+      ))}
     </div>
   );
 }

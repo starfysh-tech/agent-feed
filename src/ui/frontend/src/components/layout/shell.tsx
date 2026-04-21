@@ -6,9 +6,7 @@ interface ShellProps {
   onViewChange: (view: string) => void;
   models: string[];
   selectedModel: string;
-  dateFrom: string;
   onModelChange: (value: string) => void;
-  onDateChange: (value: string) => void;
   sidebar: ReactNode;
   children: ReactNode;
 }
@@ -18,9 +16,7 @@ export function Shell({
   onViewChange,
   models,
   selectedModel,
-  dateFrom,
   onModelChange,
-  onDateChange,
   sidebar,
   children,
 }: ShellProps) {
@@ -71,14 +67,12 @@ export function Shell({
             </svg>
           </button>
 
-          {/* Model filter + date */}
+          {/* Model filter */}
           <div className="flex-1">
             <FilterBar
               models={models}
               selectedModel={selectedModel}
-              dateFrom={dateFrom}
               onModelChange={onModelChange}
-              onDateChange={onDateChange}
             />
           </div>
 

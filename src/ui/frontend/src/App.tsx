@@ -40,6 +40,8 @@ export default function App() {
       sessions={sessions}
       isLoading={sessionsLoading}
       activeSessionId={activeSessionId}
+      dateFrom={dateFrom}
+      onDateChange={setDateFrom}
       onSelectSession={(id) => {
         setActiveSessionId(id);
         setView("sessions");
@@ -64,9 +66,7 @@ export default function App() {
       onViewChange={setView}
       models={models}
       selectedModel={selectedModel}
-      dateFrom={dateFrom}
       onModelChange={setSelectedModel}
-      onDateChange={setDateFrom}
       sidebar={sidebar}
     >
       {mainContent}

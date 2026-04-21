@@ -7,6 +7,8 @@ interface SessionListProps {
   sessions: Session[];
   isLoading: boolean;
   activeSessionId: string | null;
+  dateFrom: string;
+  onDateChange: (value: string) => void;
   onSelectSession: (id: string) => void;
 }
 
@@ -22,6 +24,8 @@ export function SessionList({
   sessions,
   isLoading,
   activeSessionId,
+  dateFrom,
+  onDateChange,
   onSelectSession,
 }: SessionListProps) {
   const [search, setSearch] = useState("");
@@ -38,7 +42,13 @@ export function SessionList({
 
   return (
     <>
-      <div className="p-1.5 px-2 border-b border-border">
+      <div className="p-1.5 px-2 border-b border-border space-y-1">
+        <Input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => onDateChange(e.target.value)}
+          className="h-6 text-[10px] font-mono w-full"
+        />
         <Input
           type="text"
           placeholder="Search..."
