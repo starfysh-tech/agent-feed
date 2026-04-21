@@ -3,3 +3,6 @@ node_modules/
 .env
 *.zip
 coverage/
+.superpowers/
+src/ui/frontend/node_modules/
+src/ui/frontend/dist/

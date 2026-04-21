@@ -10,7 +10,9 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test",
-    "test:watch": "node --test --watch"
+    "test:watch": "node --test --watch",
+    "dev:ui": "cd src/ui/frontend && npm run dev",
+    "build:ui": "cd src/ui/frontend && npm run build"
   },
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "^3.51.2-build8",
