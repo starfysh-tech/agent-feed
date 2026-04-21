@@ -83,6 +83,16 @@ function clearEnvFile() {
   }
 }
 
+async function isPortInUse(port) {
+  const net = await import('node:net');
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(true));
+    server.once('listening', () => { server.close(); resolve(false); });
+    server.listen(port, 'localhost');
+  });
+}
+
 function isProcessRunning(pid) {
   try {
     process.kill(pid, 0);
@@ -205,6 +215,13 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
 
   const config = loadConfig(CONFIG_FILE);
 
+  if (await isPortInUse(config.proxy.port)) {
+    const msg = `Port ${config.proxy.port} is already in use. Run 'agent-feed stop' or check for orphaned processes.`;
+    console.error(msg);
+    log(msg);
+    process.exit(1);
+  }
+
   const app = new App({ config, verbose });
 
   // Validate classifier before starting anything else
@@ -295,13 +312,24 @@ async function cmdStop() {
   }
   try {
     process.kill(pid, 'SIGTERM');
-    clearState();
-    console.log(`Agent Feed stopped (PID ${pid})`);
-    console.log('Run: unset ' + PROXY_ENV_VARS.join(' '));
   } catch (err) {
     console.error(`Failed to stop Agent Feed: ${err.message}`);
     process.exit(1);
   }
+
+  // Wait for process to actually exit (up to 5 seconds)
+  const stopStart = Date.now();
+  while (isProcessRunning(pid) && Date.now() - stopStart < 5000) {
+    await new Promise(r => setTimeout(r, 100));
+  }
+  if (isProcessRunning(pid)) {
+    try { process.kill(pid, 'SIGKILL'); } catch {}
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  clearState();
+  console.log(`Agent Feed stopped (PID ${pid})`);
+  console.log('Run: unset ' + PROXY_ENV_VARS.join(' '));
 }
 
 async function cmdEval(subcommand) {
