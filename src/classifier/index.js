@@ -10,6 +10,7 @@ The JSON must have this exact shape:
     {
       "type": "one of the types listed below",
       "content": "specific item that was decided, assumed, introduced, etc.",
+      "context": "1-2 sentences quoting or paraphrasing the specific part of the response that justifies this flag",
       "confidence": 0.0 to 1.0
     }
   ]

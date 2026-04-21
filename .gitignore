@@ -6,3 +6,7 @@ coverage/
 .superpowers/
 src/ui/frontend/node_modules/
 src/ui/frontend/dist/
+src/ui/frontend/tsconfig.tsbuildinfo
+src/ui/frontend/tsconfig.node.tsbuildinfo
+src/ui/frontend/vite.config.d.ts
+src/ui/frontend/vite.config.js
