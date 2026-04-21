@@ -20,6 +20,11 @@ agent-feed env                # output shell export/unset commands
 agent-feed shell-init         # output shell integration snippet for .zshrc
 agent-feed eval classifier    # precision/recall report
 agent-feed eval show          # show missed flags and FPs
+
+# Frontend (src/ui/frontend/)
+cd src/ui/frontend && npm install   # install frontend deps (separate package.json)
+cd src/ui/frontend && npm run dev   # Vite dev server with HMR on :5173 (proxies API to :3000)
+cd src/ui/frontend && npm run build # production build → dist/
 ```
 
 ## Architecture
@@ -36,9 +41,9 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 
 4. **Classifier** (`src/classifier/index.js`) — Sends response text to a classification LLM. Supports Anthropic API and OpenAI-compatible APIs (Ollama, LM Studio). The classification prompt (`CLASSIFICATION_PROMPT`) is the primary tuning surface. `validateClassifierWithFallback` tries configured provider → Ollama → LM Studio → Anthropic API key in sequence.
 
-5. **Database** (`src/storage/database.js`) — better-sqlite3 (native SQLite). Two tables: `records` (captured responses with git context) and `flags` (extracted items with review state). Uses WAL mode and `busy_timeout = 5000` for safe concurrent access (daemon + CLI eval).
+5. **Database** (`src/storage/database.js`) — better-sqlite3 (native SQLite). Two tables: `records` (captured responses with git context, plus `response_text` for the extracted readable agent message) and `flags` (extracted items with review state, plus `context` for per-flag evidence). Uses WAL mode and `busy_timeout = 5000` for safe concurrent access (daemon + CLI eval).
 
-6. **UI** (`src/ui/server.js`) — Single-file HTTP server serving a self-contained HTML/CSS/JS page plus REST API endpoints. No build step, no bundler, no framework. The entire UI is returned from `buildHTML()`.
+6. **UI** — Vite + React 19 SPA in `src/ui/frontend/` (TypeScript, Tailwind CSS v4, shadcn/ui, TanStack Query). `src/ui/server.js` (~150 lines) is API-only and serves the built frontend from `frontend/dist/` for non-API routes; returns 503 if `dist/` hasn't been built. Has its own `package.json` for frontend deps.
 
 7. **Eval** (`src/eval.js`) — Re-runs the classifier against labeled flags to compute precision/recall/F1. Two modes: `runClassifierEval` (aggregate metrics) and `getEvalExamples` (specific missed/FP examples).
 
@@ -49,13 +54,12 @@ The system is a pipeline: **Proxy → Adapter → Classifier → Database → UI
 ### Key design decisions
 
 - **ESM-only** — `"type": "module"` in package.json, all imports use `.js` extensions
-- **No build step** — plain Node.js, no transpilation, no bundler
+- **No build step for backend** — plain Node.js, no transpilation, no bundler. The frontend has its own Vite build (`src/ui/frontend/`).
 - **better-sqlite3 not sql.js** — native SQLite with disk-backed storage, WAL mode for concurrent access. The `Database` class methods are `async` for interface compatibility but execute synchronously.
 - **Classifier is fire-and-forget** — classifier failures don't block storage (`pipeline.js:47-53`)
 - **All state in `~/.agent-feed/`** — database, config, PID file, env file, logs
 - **Config is TOML** — loaded from `~/.agent-feed/config.toml`, deep-merged with defaults
-- **innerHTML with esc()** — The UI uses `innerHTML` for DOM updates. All dynamic values MUST pass through the `esc()` helper (line 293 of `src/ui/server.js`) which encodes `&`, `<`, `>`, `"`. Never use `innerHTML` with unsanitized data. For new UI code, prefer `textContent` when HTML structure isn't needed.
-- **escAttr() for onclick values** — Values embedded in HTML `onclick` attributes via `JSON.stringify` must use `escAttr()` (not raw `JSON.stringify`) to escape `"` as `&quot;`. The `buildHTML()` template literal does not preserve `\'` escapes.
+- **Vite + React frontend** — JSX handles escaping by default. The frontend is a separate package in `src/ui/frontend/` with its own deps and build step.
 
 ### REST API endpoints
 
