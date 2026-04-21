@@ -7,10 +7,14 @@ import type { ReviewStatus } from "@/api/types";
 
 interface SessionDetailProps {
   sessionId: string;
+  modelFilter?: string;
 }
 
-export function SessionDetail({ sessionId }: SessionDetailProps) {
-  const { data: records, isLoading, error } = useSession(sessionId);
+export function SessionDetail({ sessionId, modelFilter }: SessionDetailProps) {
+  const { data: allRecords, isLoading, error } = useSession(sessionId);
+  const records = modelFilter
+    ? allRecords?.filter((r) => r.model === modelFilter)
+    : allRecords;
   const updateStatus = useUpdateFlagStatus(sessionId);
   const saveNotes = useSaveNotes(sessionId);
   const bulkUpdate = useBulkUpdate(sessionId);

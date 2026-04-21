@@ -29,11 +29,8 @@ export default function App() {
     return [...set].sort();
   }, [allSessions]);
 
-  // Filter sessions by selected model
-  const sessions = useMemo(() => {
-    if (selectedModel === "all") return allSessions;
-    return allSessions.filter((s) => s.model === selectedModel);
-  }, [allSessions, selectedModel]);
+  // Sessions are not filtered by model — model filter applies to turns within a session
+  const sessions = allSessions;
 
   const sidebar = view === "sessions" ? (
     <SessionList
@@ -55,7 +52,7 @@ export default function App() {
       setView("sessions");
     }} />
   ) : activeSessionId ? (
-    <SessionDetail sessionId={activeSessionId} />
+    <SessionDetail sessionId={activeSessionId} modelFilter={selectedModel === "all" ? undefined : selectedModel} />
   ) : (
     <EmptyState />
   );
