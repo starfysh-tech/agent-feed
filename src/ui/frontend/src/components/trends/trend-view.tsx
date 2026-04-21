@@ -36,7 +36,7 @@ export function TrendView({ agent, dateFrom, onSelectSession }: TrendViewProps) 
                 <span className={`font-mono text-[11px] w-24 shrink-0 ${colors.text}`}>{t.type}</span>
                 <div className="flex-1 bg-muted rounded-sm h-2 overflow-hidden">
                   <div className="h-full rounded-sm transition-all duration-300"
-                    style={{ width: `${pct}%`, backgroundColor: `var(--color-flag-${t.type}, var(--primary))` }} />
+                    style={{ width: `${pct}%`, backgroundColor: colors.hex }} />
                 </div>
                 <span className="font-mono text-[10px] text-muted-foreground w-7 text-right">{t.count}</span>
                 <span className="font-mono text-[10px] text-red-400 w-9 text-right">{fpPct > 0 ? `${fpPct}%fp` : ""}</span>
