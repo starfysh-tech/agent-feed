@@ -18,6 +18,12 @@ export const defaultConfig = {
   storage: {
     path: '~/.agent-feed/feed.db',
   },
+  otel: {
+    enabled: true,
+    host: '127.0.0.1',
+    port: 4318,
+    max_body_bytes: 1_000_000,
+  },
 };
 
 function deepMerge(base, override) {

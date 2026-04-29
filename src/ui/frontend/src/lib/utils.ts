@@ -36,3 +36,29 @@ export const FLAG_TYPE_COLORS: Record<string, { hex: string; bg: string; text: s
 export function getFlagColors(type: string) {
   return FLAG_TYPE_COLORS[type] ?? { hex: "#4a9eff", bg: "bg-primary/10", text: "text-primary" };
 }
+
+// Coerce an OTel attribute value (which may arrive as string|number|boolean)
+// to a string or null. Used by the OTel UI components.
+export function asStringOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  return typeof v === "string" ? v : String(v);
+}
+
+// Same, returning empty string for missing values (display-friendly).
+export function asString(v: unknown): string {
+  return v == null ? "" : typeof v === "string" ? v : String(v);
+}
+
+// Coerce to a finite number or null.
+export function asNumOrNull(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Coerce to a finite number, defaulting to 0 (for arithmetic).
+export function asNumOr0(v: unknown): number {
+  if (v == null) return 0;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}

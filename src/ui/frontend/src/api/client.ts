@@ -1,4 +1,4 @@
-import type { Session, Record, RawResponse, Trends, ReviewStatus } from "./types";
+import type { Session, Record, RawResponse, Trends, ReviewStatus, OtelEvent, ToolDecisionsResponse } from "./types";
 
 const BASE = "";
 
@@ -72,4 +72,28 @@ export function fetchTrends(params: {
   if (params.dateTo) sp.set("dateTo", params.dateTo);
   const qs = sp.toString();
   return fetchJSON(`/api/trends${qs ? `?${qs}` : ""}`);
+}
+
+// OTel-derived event endpoints ─────────────────────────────────────────────
+export function fetchSessionEvents(
+  sessionId: string,
+  params: { kind?: string; promptId?: string } = {},
+): Promise<OtelEvent[]> {
+  const sp = new URLSearchParams();
+  if (params.kind) sp.set("kind", params.kind);
+  if (params.promptId) sp.set("prompt_id", params.promptId);
+  const qs = sp.toString();
+  return fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}/events${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchToolDecisions(sessionId: string): Promise<ToolDecisionsResponse> {
+  return fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}/tool-decisions`);
+}
+
+export function fetchHookActivity(sessionId: string): Promise<OtelEvent[]> {
+  return fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}/hooks`);
+}
+
+export function fetchMCPHealth(sessionId: string): Promise<OtelEvent[]> {
+  return fetchJSON(`/api/sessions/${encodeURIComponent(sessionId)}/mcp`);
 }

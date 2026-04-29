@@ -6,6 +6,8 @@ import { Database } from './storage/database.js';
 import { Pipeline } from './pipeline.js';
 import { buildClassifier, validateClassifierWithFallback } from './classifier/index.js';
 import { createUIServer } from './ui/server.js';
+import { OtelReceiver } from './otel/receiver.js';
+import { OtelSink } from './otel/sink.js';
 
 function resolvePath(p) {
   if (p.startsWith('~')) {
@@ -23,8 +25,10 @@ export class App {
     this._proxy = null;
     this._db = null;
     this._uiServer = null;
+    this._otelReceiver = null;
     this.proxyPort = null;
     this.uiPort = null;
+    this.otelPort = null;
   }
 
   async start() {
@@ -71,6 +75,27 @@ export class App {
     await this._proxy.start();
     this.proxyPort = this._proxy.port;
 
+    // Start OTel receiver (optional, on by default)
+    const otelCfg = this.config.otel ?? {};
+    if (otelCfg.enabled !== false) {
+      const sink = new OtelSink({ db: this._db });
+      this._otelReceiver = new OtelReceiver({
+        sink,
+        host: otelCfg.host ?? '127.0.0.1',
+        port: otelCfg.port ?? 4318,
+        maxBodyBytes: otelCfg.max_body_bytes ?? 1_000_000,
+        logger: this._verbose ? console : { info() {}, warn: console.warn, error: console.error },
+      });
+      try {
+        await this._otelReceiver.start();
+        this.otelPort = this._otelReceiver.server.address().port;
+      } catch (err) {
+        // Don't fail the daemon if the OTel port is taken — proxy is canonical.
+        console.warn(`[agent-feed] OTel receiver failed to start on :${otelCfg.port ?? 4318}: ${err.message}`);
+        this._otelReceiver = null;
+      }
+    }
+
     // Start UI server
     this._uiServer = createUIServer({ db: this._db });
     await this._uiServer.listen(uiCfg.port);
@@ -81,6 +106,7 @@ export class App {
 
   async stop() {
     if (this._proxy) await this._proxy.stop();
+    if (this._otelReceiver) await this._otelReceiver.stop();
     if (this._uiServer) await this._uiServer.close();
     if (this._db) await this._db.close();
     this._running = false;
@@ -100,6 +126,8 @@ export class App {
     return {
       proxyPort: this.proxyPort,
       uiPort: this.uiPort,
+      otelPort: this.otelPort,
+      otelMetrics: this._otelReceiver?.getMetrics() ?? null,
       dbSizeBytes,
       classifierLabel: this._classifierLabel ?? null,
     };

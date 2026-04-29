@@ -85,3 +85,22 @@ export type ReviewStatus =
   | "accepted"
   | "needs_change"
   | "false_positive";
+
+// OTel-derived events surfaced in the UI ────────────────────────────────────
+export interface OtelEvent {
+  id: string;
+  timestamp: string;
+  agent: string;
+  session_id: string;
+  prompt_id: string | null;
+  request_id: string | null;
+  event_kind: string;
+  event_name: string;
+  sequence: number | null;
+  attributes: { [key: string]: unknown };
+}
+
+export interface ToolDecisionsResponse {
+  decisions: OtelEvent[];
+  results: OtelEvent[];
+}
