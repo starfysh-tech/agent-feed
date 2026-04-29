@@ -76,8 +76,9 @@ export class Pipeline {
     const model = adapter.extractModel(capture.rawResponse) ?? 'unknown';
     const tokenCount = adapter.extractTokenCount(capture.rawResponse);
 
-    // DB-derived turn_index (per source). Survives daemon restarts.
-    const turnIndex = await this.db.nextTurnIndex(sessionId, source);
+    // turn_index is derived atomically inside the INSERT (see Database.insertRecord).
+    // Survives daemon restarts and avoids the check-then-write race that
+    // concurrent captures for the same (session, source) would otherwise hit.
 
     // Run classifier only for proxy source (untruncated bodies). OTel rows
     // get the same response text via UI coalesce when paired with proxy.
@@ -103,7 +104,7 @@ export class Pipeline {
       timestamp: capture.timestamp,
       agent: adapter.name,
       session_id: sessionId,
-      turn_index: turnIndex,
+      // turn_index omitted -> derived atomically inside the INSERT
       working_directory: agentCwd,
       repo: gitCtx.repo,
       git_branch: gitCtx.git_branch,

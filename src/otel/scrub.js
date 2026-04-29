@@ -24,15 +24,18 @@ export function scrubAttrs(attrs) {
   const out = {};
   for (const [k, v] of Object.entries(attrs)) {
     if (PII_ATTR_KEYS.has(k)) continue;
-    if (typeof v === 'string') {
-      out[k] = scrubString(v);
-    } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-      out[k] = scrubAttrs(v);
-    } else {
-      out[k] = v;
-    }
+    out[k] = scrubValue(v);
   }
   return out;
+}
+
+// Recurse into any value: strings get email-stripped, objects get key-filtered,
+// arrays get mapped element-wise. Primitive non-strings pass through.
+function scrubValue(v) {
+  if (typeof v === 'string') return scrubString(v);
+  if (Array.isArray(v)) return v.map(scrubValue);
+  if (v && typeof v === 'object') return scrubAttrs(v);
+  return v;
 }
 
 // Replace email addresses with [EMAIL]. Operates on a string; if the string is

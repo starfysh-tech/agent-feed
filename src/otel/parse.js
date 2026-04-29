@@ -49,9 +49,14 @@ export function attrsToObject(arr) {
     if (!a?.key) continue;
     const v = coerceValue(a.value);
     if (a.key in out) {
-      // Repeated key: convert to array, preserve all values
+      // Repeated key: convert to array, preserve all values. Push instead of
+      // spread — O(N) instead of O(N²) for the rare repeated-key case.
       const existing = out[a.key];
-      out[a.key] = Array.isArray(existing) ? [...existing, v] : [existing, v];
+      if (Array.isArray(existing)) {
+        existing.push(v);
+      } else {
+        out[a.key] = [existing, v];
+      }
     } else {
       out[a.key] = v;
     }

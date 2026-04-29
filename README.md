@@ -7,8 +7,8 @@ Works with Claude Code, Codex, and Gemini. Agents are unaware of it.
 ## How it works
 
 ```
-Agent ─┬→ ANTHROPIC_BASE_URL=:18080  → Proxy   ─┐
-       └→ OTEL_EXPORTER_OTLP_ENDPOINT=:4318 → OTLP Receiver ─┤
+Agent ─┬→ ANTHROPIC_BASE_URL=http://localhost:18080  → Proxy   ─┐
+       └→ OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 → OTLP Receiver ─┤
                                                               ├→ SQLite (~/.agent-feed/feed.db)
                                                 Classifier  ─┘
                                                      ↓

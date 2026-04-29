@@ -126,25 +126,44 @@ export class Database {
     if (!VALID_SOURCES.includes(source)) {
       throw new Error(`Invalid source: ${source}. Must be one of: ${VALID_SOURCES.join(', ')}`);
     }
-    this.db.prepare(
-      `INSERT INTO records (
-        id, timestamp, agent, agent_version, session_id, turn_index,
-        repo, working_directory, git_branch, git_commit,
-        request_summary, response_summary, response_text, raw_request, raw_response,
-        token_count, model, source, request_id
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
-        ?, ?, ?, ?
-      )`
-    ).run(
+    // turn_index: when caller doesn't supply one, derive `MAX(turn_index)+1`
+    // atomically inside the INSERT itself. This avoids the check-then-write
+    // race that two concurrent captures would otherwise hit.
+    const useDerivedTurn = record.turn_index == null;
+    const sql = useDerivedTurn
+      ? `INSERT INTO records (
+          id, timestamp, agent, agent_version, session_id, turn_index,
+          repo, working_directory, git_branch, git_commit,
+          request_summary, response_summary, response_text, raw_request, raw_response,
+          token_count, model, source, request_id
+        ) VALUES (
+          ?, ?, ?, ?, ?,
+          (SELECT COALESCE(MAX(turn_index), 0) + 1 FROM records WHERE session_id = ? AND source = ?),
+          ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?
+        )`
+      : `INSERT INTO records (
+          id, timestamp, agent, agent_version, session_id, turn_index,
+          repo, working_directory, git_branch, git_commit,
+          request_summary, response_summary, response_text, raw_request, raw_response,
+          token_count, model, source, request_id
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?
+        )`;
+    const turnArgs = useDerivedTurn
+      ? [record.session_id, source]
+      : [record.turn_index];
+    this.db.prepare(sql).run(
       id,
       record.timestamp,
       record.agent,
       record.agent_version ?? null,
       record.session_id,
-      record.turn_index ?? 1,
+      ...turnArgs,
       record.repo ?? null,
       record.working_directory,
       record.git_branch ?? null,

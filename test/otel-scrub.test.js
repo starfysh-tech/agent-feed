@@ -45,6 +45,21 @@ describe('PII scrub', () => {
       assert.equal(scrubAttrs(null), null);
       assert.equal(scrubAttrs(undefined), undefined);
     });
+
+    it('recurses into array-valued attributes (PR #1 review fix)', () => {
+      const out = scrubAttrs({
+        recipients: [
+          'first@example.com',
+          { 'user.email': 'nested@example.com', other: 'value' },
+          ['deep@example.com'],
+        ],
+      });
+      assert.deepEqual(out.recipients, [
+        '[EMAIL]',
+        { other: 'value' },     // user.email key stripped
+        ['[EMAIL]'],
+      ]);
+    });
   });
 
   describe('scrubString — JSON body case', () => {

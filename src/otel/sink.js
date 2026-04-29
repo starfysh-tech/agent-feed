@@ -8,7 +8,7 @@
 //     api_response_body via shared request_id; not used for records insertion
 //     since request_id is reliably on api_response_body but not api_request_body)
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { getAdapter } from './adapters/index.js';
 import { getAdapter as getProxyAdapter } from '../adapters/index.js';
 import { scrubAttrs } from './scrub.js';
@@ -83,36 +83,42 @@ export class OtelSink {
     );
 
     if (RECORDS_KINDS.has(event.kind)) {
-      this._writeRecordSync(event, scrubbedAttrs);
+      this._writeRecordSync(event, scrubbedAttrs, eventId);
       return 'records';
     }
     return 'events';
   }
 
-  _writeRecordSync(event, attrs) {
+  // eventId is the same deterministic id used for events: pairs an OTel
+  // exporter retry's events row with its records row, so INSERT OR IGNORE
+  // dedupes both tables in lockstep.
+  _writeRecordSync(event, attrs, eventId) {
     const body = attrs?.body ?? null;
     const responseText = extractResponseText(body, event.vendor);
     const tokenCount = extractTokenCount(attrs, event.vendor);
 
-    // Sync turn_index lookup (avoid roundtrip via async wrapper).
-    const turnRow = this.db.db.prepare(
-      `SELECT COALESCE(MAX(turn_index), 0) + 1 AS next FROM records WHERE session_id = ? AND source = ?`
-    ).get(event.sessionId, 'otel');
-
+    // turn_index derived atomically inside the INSERT — avoids the
+    // check-then-write race that two concurrent batches for the same
+    // (session, source) would otherwise hit. INSERT OR IGNORE on the
+    // deterministic eventId means a retried OTel batch is a no-op.
     this.db.db.prepare(
-      `INSERT INTO records (
+      `INSERT OR IGNORE INTO records (
         id, timestamp, agent, agent_version, session_id, turn_index,
         repo, working_directory, git_branch, git_commit,
         request_summary, response_summary, response_text, raw_request, raw_response,
         token_count, model, source, request_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (
+        ?, ?, ?, ?, ?,
+        (SELECT COALESCE(MAX(turn_index), 0) + 1 FROM records WHERE session_id = ? AND source = 'otel'),
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      )`
     ).run(
-      randomUUID(),
+      eventId,
       event.time ?? new Date().toISOString(),
       event.vendor,
       null,
       event.sessionId,
-      turnRow?.next ?? 1,
+      event.sessionId,                                    // session_id for the SELECT subquery
       null,
       event.resource?.['process.cwd'] ?? '<unknown>',
       null,

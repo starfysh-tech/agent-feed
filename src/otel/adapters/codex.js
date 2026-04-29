@@ -19,7 +19,9 @@ export const codexAdapter = createAdapter({
     'codex.tool_result':         'tool_result',
   },
   attrKeys: {
-    sessionId: ['session.id', 'session_id'],
+    // `conversation.id` is the canonical correlation id per Codex docs;
+    // session.id / session_id appear on some events as well.
+    sessionId: ['conversation.id', 'session.id', 'session_id'],
     promptId:  'prompt_id',
     requestId: 'request_id',
     sequence:  null,
