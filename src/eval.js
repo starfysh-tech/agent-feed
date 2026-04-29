@@ -17,22 +17,44 @@ function extractTextContent(rawResponse) {
 async function collectLabeledSamples(db) {
   const sessions = await db.listSessions();
   const samples = [];
+  let skippedOtel = 0;
   for (const session of sessions) {
     const records = await db.getRecordsWithFlags(session.session_id);
     for (const record of records) {
       for (const flag of record.flags) {
         if (flag.review_status === 'unreviewed') continue;
+        // OTel-sourced rows may have a non-Anthropic-shaped raw_response;
+        // rely on response_text (which the pipeline always populates from
+        // the parsed body) and skip with WARN if it's missing.
+        if (record.source === 'otel' && !record.response_text) {
+          skippedOtel++;
+          continue;
+        }
         samples.push({
           flagId: flag.id,
           type: flag.type,
           content: flag.content,
           review_status: flag.review_status,
+          response_text: record.response_text,
           raw_response: record.raw_response,
+          source: record.source,
         });
       }
     }
   }
+  if (skippedOtel > 0) {
+    console.warn(`[eval] skipped ${skippedOtel} OTel-sourced flags with no response_text`);
+  }
   return samples;
+}
+
+// Prefer response_text (already extracted by the pipeline from the agent body)
+// over re-parsing raw_response. OTel-sourced rows have an OTLP-shape raw_response
+// that extractTextContent below cannot interpret, so response_text is the only
+// safe input for them.
+function contentForSample(sample) {
+  if (sample.response_text) return sample.response_text;
+  return extractTextContent(sample.raw_response);
 }
 
 // For each labeled flag, re-run the classifier against the raw response
@@ -55,7 +77,7 @@ export async function runClassifierEval({ db, classifierFn, minSamples = MIN_SAM
   // Re-run classifier on each sample's raw response
   const results = [];
   for (const sample of samples) {
-    const content = extractTextContent(sample.raw_response);
+    const content = contentForSample(sample);
 
     let classifierFlags = [];
     try {
@@ -129,7 +151,7 @@ export async function getEvalExamples({ db, classifierFn } = {}) {
   let true_positive_count = 0;
 
   for (const sample of samples) {
-    const content = extractTextContent(sample.raw_response);
+    const content = contentForSample(sample);
 
     let classifierFlags = [];
     try {

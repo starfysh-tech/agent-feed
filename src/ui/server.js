@@ -25,6 +25,10 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function safeJsonParse(s) {
+  try { return JSON.parse(s); } catch { return s; }
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     let data = '';
@@ -98,9 +102,51 @@ export function createUIServer({ db }) {
     const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
     if (method === 'GET' && sessionMatch) {
       const sessionId = decodeURIComponent(sessionMatch[1]);
-      const records = await db.getRecordsWithFlags(sessionId);
+      const raw = url.searchParams.get('raw') === '1';
+      const records = raw
+        ? await db.getRecordsWithFlags(sessionId)
+        : await db.getCoalescedRecordsWithFlags(sessionId);
       if (!records.length) return json(res, 404, { error: 'Session not found' });
       return json(res, 200, records);
+    }
+
+    // OTel-derived event timeline for a session.
+    // Optional ?kind=tool_decision|hook|mcp|... filters by event_kind
+    // Optional ?prompt_id=<uuid> filters by prompt
+    const eventsMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
+    if (method === 'GET' && eventsMatch) {
+      const sessionId = decodeURIComponent(eventsMatch[1]);
+      const kind = url.searchParams.get('kind') || null;
+      const promptId = url.searchParams.get('prompt_id') || null;
+      const events = await db.getEventsForSession(sessionId, { kind, promptId });
+      // Parse stored JSON attributes for the wire response
+      const parsed = events.map(e => ({ ...e, attributes: safeJsonParse(e.attributes) }));
+      return json(res, 200, parsed);
+    }
+
+    const toolDecMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/tool-decisions$/);
+    if (method === 'GET' && toolDecMatch) {
+      const sessionId = decodeURIComponent(toolDecMatch[1]);
+      const decisions = await db.getEventsForSession(sessionId, { kind: 'tool_decision' });
+      const results   = await db.getEventsForSession(sessionId, { kind: 'tool_result' });
+      return json(res, 200, {
+        decisions: decisions.map(e => ({ ...e, attributes: safeJsonParse(e.attributes) })),
+        results:   results.map(e   => ({ ...e, attributes: safeJsonParse(e.attributes) })),
+      });
+    }
+
+    const hooksMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/hooks$/);
+    if (method === 'GET' && hooksMatch) {
+      const sessionId = decodeURIComponent(hooksMatch[1]);
+      const hooks = await db.getEventsForSession(sessionId, { kind: 'hook' });
+      return json(res, 200, hooks.map(e => ({ ...e, attributes: safeJsonParse(e.attributes) })));
+    }
+
+    const mcpMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/mcp$/);
+    if (method === 'GET' && mcpMatch) {
+      const sessionId = decodeURIComponent(mcpMatch[1]);
+      const mcp = await db.getEventsForSession(sessionId, { kind: 'mcp' });
+      return json(res, 200, mcp.map(e => ({ ...e, attributes: safeJsonParse(e.attributes) })));
     }
 
     if (method === 'PATCH' && pathname === '/api/flags/bulk') {

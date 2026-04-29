@@ -1,6 +1,9 @@
 import { useSession } from "@/hooks/use-session";
 import { useUpdateFlagStatus, useSaveNotes, useBulkUpdate } from "@/hooks/use-flag-mutations";
 import { TurnBlock } from "./turn-block";
+import { ToolDecisionTimeline } from "./tool-decision-timeline";
+import { HookActivity } from "./hook-activity";
+import { MCPHealth } from "./mcp-health";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import type { ReviewStatus } from "@/api/types";
@@ -82,6 +85,13 @@ export function SessionDetail({ sessionId, modelFilter }: SessionDetailProps) {
           </Button>
         </div>
       )}
+
+      {/* OTel-derived signals (rendered only when /api/sessions/:id/* returns data) */}
+      <div className="space-y-6 mb-8">
+        <ToolDecisionTimeline sessionId={sessionId} />
+        <HookActivity sessionId={sessionId} />
+        <MCPHealth sessionId={sessionId} />
+      </div>
 
       {/* Turns — newest first */}
       {[...records].reverse().map((r) => (

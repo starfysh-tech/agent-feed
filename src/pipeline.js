@@ -2,8 +2,11 @@ import { getAdapter, AGENTS } from './adapters/index.js';
 import { getGitContext } from './git.js';
 import { randomUUID } from 'node:crypto';
 
-// Track turn counts per session in memory
-const sessionTurnCounts = new Map();
+// Known limitation: when both proxy and OTel capture the same Gemini turn,
+// they assign different session ids (proxy mints a UUID; OTel reads vendor
+// session.id). UI shows them as two sessions for now. A correlation bridge
+// would need a stable cross-path key (request body content is too variable);
+// deferred until we have real data on how often this matters.
 
 // Extract the agent's working directory from the request system prompt.
 // Claude Code includes "Primary working directory: /path/to/repo" in the system prompt.
@@ -48,8 +51,11 @@ export class Pipeline {
     this.classifierFn = classifierFn;
   }
 
-  async process(capture) {
-    // Skip non-200 responses
+  // source: 'proxy' (default) or 'otel'. Backward-compatible.
+  // Classifier runs only for source='proxy' rows because proxy bodies are
+  // untruncated; OTel bodies may be cut at ~60-250KB.
+  async process(capture, source = 'proxy') {
+    // Skip non-200 responses (proxy path; OTel sink supplies its own captures)
     if (capture.statusCode !== 200) return;
 
     const adapter = getAdapter(capture.host);
@@ -57,7 +63,6 @@ export class Pipeline {
     // Skip unknown agents
     if (adapter.name === AGENTS.UNKNOWN) return;
 
-    // Build context for adapter (Gemini needs proxy-generated session ID)
     const context = {
       proxySessionId: randomUUID(),
       requestHash: this._hashRequest(capture.rawRequest),
@@ -71,16 +76,15 @@ export class Pipeline {
     const model = adapter.extractModel(capture.rawResponse) ?? 'unknown';
     const tokenCount = adapter.extractTokenCount(capture.rawResponse);
 
-    // Track turn index per session
-    const turnKey = sessionId;
-    const turnIndex = (sessionTurnCounts.get(turnKey) ?? 0) + 1;
-    sessionTurnCounts.set(turnKey, turnIndex);
+    // DB-derived turn_index (per source). Survives daemon restarts.
+    const turnIndex = await this.db.nextTurnIndex(sessionId, source);
 
-    // Run classifier if provided
+    // Run classifier only for proxy source (untruncated bodies). OTel rows
+    // get the same response text via UI coalesce when paired with proxy.
     let responseSummary = content?.slice(0, 200) ?? '';
     let flags = [];
 
-    if (this.classifierFn && content) {
+    if (source === 'proxy' && this.classifierFn && content) {
       try {
         const result = await this.classifierFn(content);
         responseSummary = result.response_summary ?? responseSummary;
@@ -110,6 +114,8 @@ export class Pipeline {
       raw_response: capture.rawResponse,
       token_count: tokenCount,
       model,
+      source,
+      request_id: capture.requestId ?? null,
     });
 
     // Insert flags
@@ -126,6 +132,8 @@ export class Pipeline {
         // skip invalid flags silently
       }
     }
+
+    return recordId;
   }
 
   _hashRequest(rawRequest) {

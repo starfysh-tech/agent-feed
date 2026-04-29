@@ -7,16 +7,19 @@ Works with Claude Code, Codex, and Gemini. Agents are unaware of it.
 ## How it works
 
 ```
-Agent → ANTHROPIC_BASE_URL=http://localhost:18080 → Proxy → api.anthropic.com
-                                                     ↓
-                                                Classifier (Haiku / local model)
-                                                     ↓
-                                                SQLite (~/.agent-feed/feed.db)
+Agent ─┬→ ANTHROPIC_BASE_URL=:18080  → Proxy   ─┐
+       └→ OTEL_EXPORTER_OTLP_ENDPOINT=:4318 → OTLP Receiver ─┤
+                                                              ├→ SQLite (~/.agent-feed/feed.db)
+                                                Classifier  ─┘
                                                      ↓
                                                 Web UI (localhost:3000)
 ```
 
-The proxy uses header-based routing to determine the upstream. Responses are captured asynchronously and classified. Nothing blocks the agent.
+Two parallel ingestion paths:
+- **Proxy** (port 18080) captures full HTTP request/response bodies via header-based upstream routing. Canonical for body content.
+- **OTLP receiver** (port 4318) ingests native OpenTelemetry from agents that emit it. Adds visibility for tool decisions, hooks, MCP server lifecycle, skill activation, and other events the proxy can't see.
+
+When both capture the same turn, the UI coalesces by `request_id`. Neither blocks the agent.
 
 ## Quick start
 

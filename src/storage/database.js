@@ -22,6 +22,8 @@ const VALID_REVIEW_STATUSES = [
   'false_positive',
 ];
 
+const VALID_SOURCES = ['proxy', 'otel'];
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS records (
     id TEXT PRIMARY KEY,
@@ -40,7 +42,9 @@ const SCHEMA = `
     raw_request TEXT,
     raw_response TEXT NOT NULL,
     token_count INTEGER,
-    model TEXT NOT NULL
+    model TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'proxy',
+    request_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS flags (
@@ -56,8 +60,25 @@ const SCHEMA = `
     FOREIGN KEY (record_id) REFERENCES records(id)
   );
 
+  CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    prompt_id TEXT,
+    request_id TEXT,
+    event_kind TEXT NOT NULL,
+    event_name TEXT NOT NULL,
+    sequence INTEGER,
+    attributes TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_records_session ON records(session_id);
+  CREATE INDEX IF NOT EXISTS idx_records_session_request ON records(session_id, request_id);
   CREATE INDEX IF NOT EXISTS idx_flags_record ON flags(record_id);
+  CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, sequence);
+  CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events(session_id, event_kind);
+  CREATE INDEX IF NOT EXISTS idx_events_prompt ON events(prompt_id);
 `;
 
 export class Database {
@@ -82,6 +103,14 @@ export class Database {
     if (!recordCols.includes('response_text')) {
       this.db.exec('ALTER TABLE records ADD COLUMN response_text TEXT');
     }
+    if (!recordCols.includes('source')) {
+      this.db.exec("ALTER TABLE records ADD COLUMN source TEXT NOT NULL DEFAULT 'proxy'");
+    }
+    if (!recordCols.includes('request_id')) {
+      this.db.exec('ALTER TABLE records ADD COLUMN request_id TEXT');
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_records_session_request ON records(session_id, request_id)');
+    // Idempotent: events table + indexes covered by SCHEMA's CREATE IF NOT EXISTS above
   }
 
   async close() {
@@ -93,17 +122,21 @@ export class Database {
 
   async insertRecord(record) {
     const id = randomUUID();
+    const source = record.source ?? 'proxy';
+    if (!VALID_SOURCES.includes(source)) {
+      throw new Error(`Invalid source: ${source}. Must be one of: ${VALID_SOURCES.join(', ')}`);
+    }
     this.db.prepare(
       `INSERT INTO records (
         id, timestamp, agent, agent_version, session_id, turn_index,
         repo, working_directory, git_branch, git_commit,
         request_summary, response_summary, response_text, raw_request, raw_response,
-        token_count, model
+        token_count, model, source, request_id
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
-        ?, ?
+        ?, ?, ?, ?
       )`
     ).run(
       id,
@@ -123,8 +156,97 @@ export class Database {
       record.raw_response,
       record.token_count ?? null,
       record.model,
+      source,
+      record.request_id ?? null,
     );
     return id;
+  }
+
+  // Idempotent: deterministic id supplied by caller, ON CONFLICT DO NOTHING.
+  // Returns the row id (existing or new). attributes must be JSON-serializable.
+  async insertEvent(event) {
+    const id = event.id;
+    if (!id) throw new Error('insertEvent requires deterministic id');
+    const attrsJson = typeof event.attributes === 'string'
+      ? event.attributes
+      : JSON.stringify(event.attributes ?? {});
+    this.db.prepare(
+      `INSERT OR IGNORE INTO events (
+        id, timestamp, agent, session_id, prompt_id, request_id,
+        event_kind, event_name, sequence, attributes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      event.timestamp,
+      event.agent,
+      event.session_id,
+      event.prompt_id ?? null,
+      event.request_id ?? null,
+      event.event_kind,
+      event.event_name,
+      event.sequence ?? null,
+      attrsJson,
+    );
+    return id;
+  }
+
+  async getEventsForSession(sessionId, { kind = null, promptId = null } = {}) {
+    const conditions = ['session_id = ?'];
+    const params = [sessionId];
+    if (kind)     { conditions.push('event_kind = ?'); params.push(kind); }
+    if (promptId) { conditions.push('prompt_id = ?');  params.push(promptId); }
+    return this.db.prepare(
+      `SELECT * FROM events WHERE ${conditions.join(' AND ')} ORDER BY sequence ASC`
+    ).all(...params);
+  }
+
+  // Coalesce records for a session: when both proxy and otel rows share the same
+  // (session_id, request_id), prefer one row. Strategy: prefer proxy for raw_response
+  // and response_text (untruncated), prefer otel for token_count when proxy lacks it.
+  // Rows without request_id (e.g. existing legacy proxy rows) pass through unchanged.
+  async getRecordsCoalesced(sessionId) {
+    const records = this.db.prepare(
+      `SELECT * FROM records WHERE session_id = ? ORDER BY turn_index ASC, timestamp ASC`
+    ).all(sessionId);
+    if (records.length === 0) return [];
+
+    // Group by request_id; null request_id rows pass through individually
+    const byKey = new Map();
+    const standalone = [];
+    for (const r of records) {
+      if (!r.request_id) { standalone.push(r); continue; }
+      const key = r.request_id;
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key).push(r);
+    }
+
+    const merged = [];
+    for (const group of byKey.values()) {
+      if (group.length === 1) { merged.push(group[0]); continue; }
+      const proxy = group.find(r => r.source === 'proxy');
+      const otel  = group.find(r => r.source === 'otel');
+      if (!proxy)  { merged.push(otel);  continue; }
+      if (!otel)   { merged.push(proxy); continue; }
+      merged.push({
+        ...proxy,
+        token_count: proxy.token_count ?? otel.token_count,
+        // Mark coalesced for UI consumers
+        source: 'proxy+otel',
+      });
+    }
+
+    return [...standalone, ...merged].sort((a, b) => {
+      if (a.turn_index !== b.turn_index) return a.turn_index - b.turn_index;
+      return (a.timestamp ?? '').localeCompare(b.timestamp ?? '');
+    });
+  }
+
+  // Derive next turn_index for a (session, source) pair. DB-derived so it survives restarts.
+  async nextTurnIndex(sessionId, source = 'proxy') {
+    const row = this.db.prepare(
+      `SELECT COALESCE(MAX(turn_index), 0) + 1 AS next FROM records WHERE session_id = ? AND source = ?`
+    ).get(sessionId, source);
+    return row?.next ?? 1;
   }
 
   async insertFlag(flag) {
@@ -252,8 +374,24 @@ export class Database {
 
   async getRecordsWithFlags(sessionId) {
     const records = await this.getSession(sessionId);
+    return this._attachFlags(records);
+  }
+
+  // Coalesced view: prefer one row per (session_id, request_id), merging
+  // proxy + otel side-by-side records. Flags attached to the proxy row when
+  // both exist (classifier only runs on proxy source).
+  async getCoalescedRecordsWithFlags(sessionId) {
+    const coalesced = await this.getRecordsCoalesced(sessionId);
+    return this._attachFlags(coalesced);
+  }
+
+  _attachFlags(records) {
     if (!records.length) return [];
-    const recordIds = records.map(r => r.id);
+    const recordIds = records.map(r => r.id).filter(Boolean);
+    if (!recordIds.length) {
+      for (const r of records) r.flags = [];
+      return records;
+    }
     const placeholders = recordIds.map(() => '?').join(',');
     const allFlags = this.db.prepare(
       `SELECT * FROM flags WHERE record_id IN (${placeholders})`
