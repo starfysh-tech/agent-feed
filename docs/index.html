@@ -1094,9 +1094,9 @@
       <div class="flow-step">
         <span class="flow-num">01</span>
         <div>
-          <h3 class="flow-title">Proxy captures responses</h3>
-          <p class="flow-desc">Every API response from Claude Code, Codex, or Gemini passes through the proxy. The agent doesn&rsquo;t know it&rsquo;s there &mdash; responses are forwarded unmodified.</p>
-          <span class="flow-tag">one env var to enable</span>
+          <h3 class="flow-title">Proxy + OTel capture responses</h3>
+          <p class="flow-desc">Every API response from Claude Code, Codex, or Gemini passes through the proxy unmodified. Agents that emit OpenTelemetry (Claude, Gemini) also send tool decisions, hook events, and MCP lifecycle to a local receiver &mdash; signals the proxy can&rsquo;t see.</p>
+          <span class="flow-tag">env vars + optional OTel exporter</span>
         </div>
       </div>
       <div class="flow-step">
@@ -1273,8 +1273,16 @@
         <div class="tech-value">Built-in precision/recall/F1 metrics per flag type. CLI-driven.</div>
       </div>
       <div class="tech-row">
+        <div class="tech-label">Telemetry</div>
+        <div class="tech-value">Native OpenTelemetry receiver alongside the proxy. Captures tool decisions, hooks, and MCP server lifecycle that proxies can't see. Claude Code and Gemini CLI emit by default; Codex via config.</div>
+      </div>
+      <div class="tech-row">
+        <div class="tech-label">Restart safety</div>
+        <div class="tech-value">Atomic schema migrations. <code>agent-feed start</code> verifies the daemon is actually serving requests via <code>/api/health</code> before reporting success; on failure, env vars are cleared so coding agents fall through to direct upstream rather than hanging.</div>
+      </div>
+      <div class="tech-row">
         <div class="tech-label">Architecture</div>
-        <div class="tech-value">ESM Node.js. No build step. No framework. 83 tests.</div>
+        <div class="tech-value">ESM Node.js. No build step. No framework. 204 tests.</div>
       </div>
       <div class="tech-row">
         <div class="tech-label">License</div>
