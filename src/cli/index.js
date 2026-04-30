@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { App } from '../app.js';
 import { loadConfig } from '../config.js';
 import { validateClassifierWithFallback } from '../classifier/index.js';
+import { waitForHealth } from './health-probe.js';
 
 const AGENT_FEED_DIR = path.join(os.homedir(), '.agent-feed');
 const PID_FILE = path.join(AGENT_FEED_DIR, 'agent-feed.pid');
@@ -111,7 +112,12 @@ function writeEnvFile(port, otelPort = null) {
     );
   }
   lines.push('');
-  fs.writeFileSync(ENV_FILE, lines.join('\n'));
+  // Atomic write: temp file + rename. Prevents readers (shell-init source-loads
+  // and `agent-feed env` reads) from seeing a partial file if writeEnvFile is
+  // killed mid-write.
+  const tmp = ENV_FILE + '.tmp';
+  fs.writeFileSync(tmp, lines.join('\n'));
+  fs.renameSync(tmp, ENV_FILE);
 }
 
 function clearEnvFile() {
@@ -137,6 +143,24 @@ function isProcessRunning(pid) {
   } catch {
     return false;
   }
+}
+
+// Send SIGTERM, wait for the process to exit, then SIGKILL if it didn't.
+// Used by stop/restart and by cmdStart's failure-recovery path to ensure no
+// orphan supervisor lingers and races the next start. Returns true if the
+// process is gone after the call (regardless of how it died).
+async function killAndWait(pid, { timeoutMs = 5000 } = {}) {
+  if (!pid || !isProcessRunning(pid)) return true;
+  try { process.kill(pid, 'SIGTERM'); } catch {}
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessRunning(pid) && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 100));
+  }
+  if (isProcessRunning(pid)) {
+    try { process.kill(pid, 'SIGKILL'); } catch {}
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return !isProcessRunning(pid);
 }
 
 function log(msg) {
@@ -170,7 +194,42 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
     fs.closeSync(logFd);
     sup.unref();
 
-    await waitForFile(ENV_FILE, sup);
+    // Wait for the daemon to actually serve requests, not just spawn. The
+    // health probe queries `/api/health` which requires the UI server is
+    // listening AND the DB is queryable — catches migration crashes that
+    // would otherwise leave us with stranded env vars on a dead port.
+    const probeTimeoutMs = Number(process.env.AGENT_FEED_HEALTH_TIMEOUT_MS) || 30_000;
+    const health = await waitForHealth(config.ui.port, { timeoutMs: probeTimeoutMs });
+    if (!health.ok) {
+      // Daemon failed to come up. Remove env file so NEW shells don't get
+      // exports pointing at a dead port; tell the current shell how to
+      // unset; tear down any leftover supervisor that might respawn and
+      // race the user's next start.
+      clearEnvFile();
+      await killAndWait(sup.pid ?? readPid(), { timeoutMs: 2000 });
+      clearPid();
+      // The supervisor's signal handler should have killed its daemon child
+      // before exiting, but if SIGTERM didn't propagate (e.g. supervisor
+      // already SIGKILL'd) the child may still be holding ports. Check and
+      // warn so the user can `lsof` and clean up before retrying.
+      const stillBoundPorts = [];
+      for (const port of [config.proxy.port, config.ui.port, config.otel?.port].filter(Boolean)) {
+        if (await isPortInUse(port)) stillBoundPorts.push(port);
+      }
+      const portWarning = stillBoundPorts.length > 0
+        ? `\n\n⚠ Ports still bound by an orphaned process: ${stillBoundPorts.join(', ')}` +
+          `\n  Find and kill: lsof -nP -iTCP:${stillBoundPorts.join(' -iTCP:')} -sTCP:LISTEN`
+        : '';
+      console.error(
+        `\n✗ Agent-feed daemon failed to become healthy within ${(probeTimeoutMs / 1000).toFixed(0)}s.` +
+        `\n  Last error: ${health.lastError}` +
+        `\n  Log: ${LOG_FILE}` +
+        portWarning +
+        `\n\nYour CURRENT shell still has these env vars exported. Run:\n\n  unset ${PROXY_ENV_VARS.join(' ')}` +
+        `\n\n…or open a new terminal. Until you do, coding agents will hang on a dead port.\n`
+      );
+      process.exit(1);
+    }
 
     // Read back what the supervisor wrote
     const envStart = Date.now();
@@ -203,6 +262,7 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
     }
 
     let child = forkDaemon();
+    let shuttingDown = false;
 
     await waitForFile(ENV_FILE, child);
 
@@ -216,6 +276,11 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
 
     function supervise(c) {
       c.on('exit', (code) => {
+        // During shutdown the supervisor itself is responsible for exit;
+        // skip restart logic so we don't fork a new daemon while teardown
+        // is in progress.
+        if (shuttingDown) return;
+
         if (code === 0) {
           clearState();
           process.exit(0);
@@ -242,8 +307,30 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
       });
     }
 
+    // Forward SIGTERM/SIGINT to the daemon child, wait for it to release
+    // its ports (proxy 18080, ui 3000, otel 4318), then exit. Without this
+    // the child orphans and `agent-feed start` after `stop` would hit
+    // EADDRINUSE during respawn-backoff.
     for (const sig of ['SIGTERM', 'SIGINT']) {
-      process.on(sig, () => { child.kill(sig); });
+      process.on(sig, async () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        if (child && !child.killed) {
+          child.kill(sig);
+          await new Promise((resolve) => {
+            const killTimer = setTimeout(() => {
+              try { child.kill('SIGKILL'); } catch {}
+              resolve();
+            }, 3000);
+            child.once('exit', () => {
+              clearTimeout(killTimer);
+              resolve();
+            });
+          });
+        }
+        clearState();
+        process.exit(0);
+      });
     }
 
     supervise(child);
@@ -348,23 +435,7 @@ async function cmdStop() {
     clearState();
     process.exit(0);
   }
-  try {
-    process.kill(pid, 'SIGTERM');
-  } catch (err) {
-    console.error(`Failed to stop Agent Feed: ${err.message}`);
-    process.exit(1);
-  }
-
-  // Wait for process to actually exit (up to 5 seconds)
-  const stopStart = Date.now();
-  while (isProcessRunning(pid) && Date.now() - stopStart < 5000) {
-    await new Promise(r => setTimeout(r, 100));
-  }
-  if (isProcessRunning(pid)) {
-    try { process.kill(pid, 'SIGKILL'); } catch {}
-    await new Promise(r => setTimeout(r, 200));
-  }
-
+  await killAndWait(pid);
   clearState();
   console.log(`Agent Feed stopped (PID ${pid})`);
   console.log('Run: unset ' + PROXY_ENV_VARS.join(' '));
@@ -374,22 +445,7 @@ async function cmdRestart() {
   const pid = readPid();
   if (pid && isProcessRunning(pid)) {
     console.log('Stopping Agent Feed...');
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch (err) {
-      console.error(`Failed to stop Agent Feed: ${err.message}`);
-      process.exit(1);
-    }
-
-    const stopStart = Date.now();
-    while (isProcessRunning(pid) && Date.now() - stopStart < 5000) {
-      await new Promise(r => setTimeout(r, 100));
-    }
-    if (isProcessRunning(pid)) {
-      try { process.kill(pid, 'SIGKILL'); } catch {}
-      await new Promise(r => setTimeout(r, 200));
-    }
-
+    await killAndWait(pid);
     clearState();
     console.log(`Agent Feed stopped (PID ${pid})`);
   } else {

@@ -63,6 +63,19 @@ export function createUIServer({ db }) {
 
     // ── API routes ──────────────────────────────────────────────────────
 
+    // Readiness probe — used by `agent-feed start` to confirm the daemon is
+    // serving requests AND the DB is queryable (catches migration failures
+    // that just-binding-the-port wouldn't). Returns 503 on DB error so the
+    // CLI can treat the daemon as unhealthy and trigger auto-unset.
+    if (method === 'GET' && pathname === '/api/health') {
+      try {
+        db.ping();
+        return json(res, 200, { ok: true, db: 'ready' });
+      } catch (err) {
+        return json(res, 503, { ok: false, db: err.message ?? String(err) });
+      }
+    }
+
     if (method === 'GET' && pathname === '/api/trends') {
       const agent    = url.searchParams.get('agent')    || undefined;
       const repo     = url.searchParams.get('repo')     || undefined;
@@ -211,7 +224,11 @@ export function createUIServer({ db }) {
         handleRequest(req, res).catch(err => json(res, 500, { error: err.message }));
       });
       await new Promise((resolve, reject) => {
-        server.listen(configPort, 'localhost', (err) => {
+        // Bind explicitly to 127.0.0.1 (IPv4) rather than 'localhost' so the
+        // CLI's health probe can match deterministically. macOS resolves
+        // 'localhost' to ::1 (IPv6) first, which produced a probe-vs-bind
+        // mismatch when the probe used 127.0.0.1.
+        server.listen(configPort, '127.0.0.1', (err) => {
           if (err) return reject(err);
           resolve();
         });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import BetterSqlite3 from 'better-sqlite3';
 import { Database } from '../src/storage/database.js';
 
 describe('Database OTel additions', () => {
@@ -218,6 +219,73 @@ describe('Database OTel additions', () => {
       const cols = db.db.pragma('table_info(records)').map(c => c.name);
       assert.ok(cols.includes('source'));
       assert.ok(cols.includes('request_id'));
+    });
+
+    it('migrates legacy records before creating request_id index', async () => {
+      const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-feed-legacy-db-'));
+      const legacyPath = path.join(legacyDir, 'legacy.db');
+      const legacyDb = new Database(legacyPath);
+
+      try {
+        const oldDb = new BetterSqlite3(legacyPath);
+        oldDb.exec(`
+          CREATE TABLE records (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            agent TEXT NOT NULL,
+            agent_version TEXT,
+            session_id TEXT NOT NULL,
+            turn_index INTEGER NOT NULL DEFAULT 1,
+            repo TEXT,
+            working_directory TEXT NOT NULL,
+            git_branch TEXT,
+            git_commit TEXT,
+            request_summary TEXT,
+            response_summary TEXT NOT NULL,
+            raw_request TEXT,
+            raw_response TEXT NOT NULL,
+            token_count INTEGER,
+            model TEXT NOT NULL
+          );
+          CREATE TABLE flags (
+            id TEXT PRIMARY KEY,
+            record_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            review_status TEXT NOT NULL DEFAULT 'unreviewed',
+            reviewer_note TEXT,
+            outcome TEXT
+          );
+          INSERT INTO records (
+            id, timestamp, agent, session_id, turn_index, working_directory,
+            response_summary, raw_response, model
+          ) VALUES (
+            'legacy-record', '2026-04-29T00:00:00Z', 'codex', 'legacy-session',
+            1, '/tmp', 'summary', '{}', 'legacy-model'
+          );
+        `);
+        oldDb.close();
+
+        await legacyDb.init();
+        const cols = legacyDb.db.pragma('table_info(records)').map(c => c.name);
+        assert.ok(cols.includes('response_text'));
+        assert.ok(cols.includes('source'));
+        assert.ok(cols.includes('request_id'));
+
+        const indexes = legacyDb.db.pragma('index_list(records)').map(i => i.name);
+        assert.ok(indexes.includes('idx_records_session_request'));
+
+        const row = legacyDb.db.prepare('SELECT id, source, request_id FROM records WHERE id = ?').get('legacy-record');
+        assert.deepEqual(row, {
+          id: 'legacy-record',
+          source: 'proxy',
+          request_id: null,
+        });
+      } finally {
+        await legacyDb.close();
+        fs.rmSync(legacyDir, { recursive: true, force: true });
+      }
     });
   });
 });

@@ -27,6 +27,10 @@ OTel events stored:
 
 PII (`user.email`, `user.id`, `user.account_uuid`, `organization.id`, `installation.id`) is scrubbed at parse time; nested email addresses inside JSON bodies are redacted to `[EMAIL]`.
 
+## Health endpoint
+
+The UI server exposes `GET /api/health` returning `{ok:true,db:"ready"}` when the daemon is fully up (UI listening + DB queryable). It's used by `agent-feed start` to verify readiness before reporting success — see [docs/configuration.md](configuration.md#daemon-readiness--restart-safety). External monitors can poll it; rate is unbounded but each call is sub-millisecond (cached prepared statement).
+
 ## Adding a new agent (proxy path)
 
 Create an adapter object in `src/adapters/index.js` with four methods:

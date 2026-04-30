@@ -61,6 +61,8 @@ agent-feed eval classifier   Precision/recall report
 agent-feed eval show         Show missed flags and false positives
 ```
 
+`agent-feed start` waits up to 30s for the daemon to pass `GET /api/health` (DB readable, all listeners bound) before reporting success. On probe timeout the env file is removed and the CLI exits non-zero with the exact `unset` command for your current shell — see [docs/configuration.md](docs/configuration.md#daemon-readiness--restart-safety) for details. Override the timeout via `AGENT_FEED_HEALTH_TIMEOUT_MS=<ms>`.
+
 ## Session review
 
 The web UI shows flagged items per session. Each flag includes:

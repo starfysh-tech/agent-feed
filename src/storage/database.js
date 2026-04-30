@@ -74,7 +74,6 @@ const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_records_session ON records(session_id);
-  CREATE INDEX IF NOT EXISTS idx_records_session_request ON records(session_id, request_id);
   CREATE INDEX IF NOT EXISTS idx_flags_record ON flags(record_id);
   CREATE INDEX IF NOT EXISTS idx_events_session_seq ON events(session_id, sequence);
   CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events(session_id, event_kind);
@@ -91,32 +90,63 @@ export class Database {
     const dir = path.dirname(this.dbPath);
     fs.mkdirSync(dir, { recursive: true });
     this.db = new BetterSqlite3(this.dbPath);
+    // Pragmas must be set OUTSIDE the migration transaction — journal_mode=WAL
+    // can't reliably be changed inside a transaction in SQLite.
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
-    this.db.exec(SCHEMA);
-    // Migrations: add columns that may be absent in existing DBs
-    const flagCols = this.db.pragma('table_info(flags)').map(c => c.name);
-    if (!flagCols.includes('context')) {
-      this.db.exec('ALTER TABLE flags ADD COLUMN context TEXT');
-    }
-    const recordCols = this.db.pragma('table_info(records)').map(c => c.name);
-    if (!recordCols.includes('response_text')) {
-      this.db.exec('ALTER TABLE records ADD COLUMN response_text TEXT');
-    }
-    if (!recordCols.includes('source')) {
-      this.db.exec("ALTER TABLE records ADD COLUMN source TEXT NOT NULL DEFAULT 'proxy'");
-    }
-    if (!recordCols.includes('request_id')) {
-      this.db.exec('ALTER TABLE records ADD COLUMN request_id TEXT');
-    }
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_records_session_request ON records(session_id, request_id)');
-    // Idempotent: events table + indexes covered by SCHEMA's CREATE IF NOT EXISTS above
+    // All schema/migration work runs as one transaction. SQLite DDL is
+    // transactional in better-sqlite3; if any step throws, the entire schema
+    // change rolls back, leaving the DB exactly as it was on entry. Prevents
+    // the partial-migration class that crashed agent-feed restart historically.
+    const migrate = this.db.transaction(() => {
+      this.db.exec(SCHEMA);
+      // Backfill columns onto pre-existing tables. Each ALTER is guarded by a
+      // pragma table_info check so re-runs are no-ops.
+      const flagCols = this.db.pragma('table_info(flags)').map(c => c.name);
+      if (!flagCols.includes('context')) {
+        this.db.exec('ALTER TABLE flags ADD COLUMN context TEXT');
+      }
+      const recordCols = this.db.pragma('table_info(records)').map(c => c.name);
+      if (!recordCols.includes('response_text')) {
+        this.db.exec('ALTER TABLE records ADD COLUMN response_text TEXT');
+      }
+      if (!recordCols.includes('source')) {
+        this.db.exec("ALTER TABLE records ADD COLUMN source TEXT NOT NULL DEFAULT 'proxy'");
+      }
+      if (!recordCols.includes('request_id')) {
+        this.db.exec('ALTER TABLE records ADD COLUMN request_id TEXT');
+      }
+      // Index must be created AFTER request_id exists; kept out of SCHEMA so
+      // it never runs against a pre-OTel records table.
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_records_session_request ON records(session_id, request_id)');
+    });
+    migrate();
   }
 
   async close() {
     if (this.db) {
       this.db.close();
       this.db = null;
+    }
+    // Cached prepared statements are bound to the closed connection;
+    // drop them so a subsequent init() doesn't reuse a stale handle.
+    this._pingStmt = null;
+  }
+
+  // Cheap liveness check — used by /api/health to confirm the DB connection
+  // is still serving queries. Throws on closed/uninitialized DB. The prepared
+  // statement is lazily cached so probe-rate calls don't pay the
+  // statement-compile cost on each invocation; if the cached statement was
+  // bound to a connection that's since been closed/reopened (test harnesses
+  // do this), re-prepare on the new connection rather than throwing.
+  ping() {
+    if (!this.db) throw new Error('Database not initialized');
+    if (!this._pingStmt) this._pingStmt = this.db.prepare('SELECT 1 AS ok');
+    try {
+      return this._pingStmt.get();
+    } catch {
+      this._pingStmt = this.db.prepare('SELECT 1 AS ok');
+      return this._pingStmt.get();
     }
   }
 
