@@ -207,10 +207,23 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
       clearEnvFile();
       await killAndWait(sup.pid ?? readPid(), { timeoutMs: 2000 });
       clearPid();
+      // The supervisor's signal handler should have killed its daemon child
+      // before exiting, but if SIGTERM didn't propagate (e.g. supervisor
+      // already SIGKILL'd) the child may still be holding ports. Check and
+      // warn so the user can `lsof` and clean up before retrying.
+      const stillBoundPorts = [];
+      for (const port of [config.proxy.port, config.ui.port, config.otel?.port].filter(Boolean)) {
+        if (await isPortInUse(port)) stillBoundPorts.push(port);
+      }
+      const portWarning = stillBoundPorts.length > 0
+        ? `\n\n⚠ Ports still bound by an orphaned process: ${stillBoundPorts.join(', ')}` +
+          `\n  Find and kill: lsof -nP -iTCP:${stillBoundPorts.join(' -iTCP:')} -sTCP:LISTEN`
+        : '';
       console.error(
         `\n✗ Agent-feed daemon failed to become healthy within 30s.` +
         `\n  Last error: ${health.lastError}` +
         `\n  Log: ${LOG_FILE}` +
+        portWarning +
         `\n\nYour CURRENT shell still has these env vars exported. Run:\n\n  unset ${PROXY_ENV_VARS.join(' ')}` +
         `\n\n…or open a new terminal. Until you do, coding agents will hang on a dead port.\n`
       );
@@ -248,6 +261,7 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
     }
 
     let child = forkDaemon();
+    let shuttingDown = false;
 
     await waitForFile(ENV_FILE, child);
 
@@ -261,6 +275,11 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
 
     function supervise(c) {
       c.on('exit', (code) => {
+        // During shutdown the supervisor itself is responsible for exit;
+        // skip restart logic so we don't fork a new daemon while teardown
+        // is in progress.
+        if (shuttingDown) return;
+
         if (code === 0) {
           clearState();
           process.exit(0);
@@ -287,8 +306,30 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
       });
     }
 
+    // Forward SIGTERM/SIGINT to the daemon child, wait for it to release
+    // its ports (proxy 18080, ui 3000, otel 4318), then exit. Without this
+    // the child orphans and `agent-feed start` after `stop` would hit
+    // EADDRINUSE during respawn-backoff.
     for (const sig of ['SIGTERM', 'SIGINT']) {
-      process.on(sig, () => { child.kill(sig); });
+      process.on(sig, async () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        if (child && !child.killed) {
+          child.kill(sig);
+          await new Promise((resolve) => {
+            const killTimer = setTimeout(() => {
+              try { child.kill('SIGKILL'); } catch {}
+              resolve();
+            }, 3000);
+            child.once('exit', () => {
+              clearTimeout(killTimer);
+              resolve();
+            });
+          });
+        }
+        clearState();
+        process.exit(0);
+      });
     }
 
     supervise(child);
