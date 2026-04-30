@@ -198,7 +198,8 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
     // health probe queries `/api/health` which requires the UI server is
     // listening AND the DB is queryable — catches migration crashes that
     // would otherwise leave us with stranded env vars on a dead port.
-    const health = await waitForHealth(config.ui.port);
+    const probeTimeoutMs = Number(process.env.AGENT_FEED_HEALTH_TIMEOUT_MS) || 30_000;
+    const health = await waitForHealth(config.ui.port, { timeoutMs: probeTimeoutMs });
     if (!health.ok) {
       // Daemon failed to come up. Remove env file so NEW shells don't get
       // exports pointing at a dead port; tell the current shell how to
@@ -220,7 +221,7 @@ async function cmdStart({ verbose = false, daemon = false } = {}) {
           `\n  Find and kill: lsof -nP -iTCP:${stillBoundPorts.join(' -iTCP:')} -sTCP:LISTEN`
         : '';
       console.error(
-        `\n✗ Agent-feed daemon failed to become healthy within 30s.` +
+        `\n✗ Agent-feed daemon failed to become healthy within ${(probeTimeoutMs / 1000).toFixed(0)}s.` +
         `\n  Last error: ${health.lastError}` +
         `\n  Log: ${LOG_FILE}` +
         portWarning +

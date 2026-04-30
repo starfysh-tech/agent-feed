@@ -30,8 +30,8 @@ max_body_bytes = 1000000
 
 - **Default timeout**: 30 seconds. Override per-invocation with `AGENT_FEED_HEALTH_TIMEOUT_MS=<ms>` (e.g. `AGENT_FEED_HEALTH_TIMEOUT_MS=120000 agent-feed start` for a multi-GB DB on slow disk).
 - **On probe failure**: the env file at `~/.agent-feed/env` is removed atomically so **new** shells don't inherit exports pointing at a dead port. The CLI prints the exact `unset ANTHROPIC_BASE_URL …` command and exits non-zero. Your **current** shell still has the env vars in process memory until you run `unset` or open a new terminal — the printed command is the fix.
-- **Migrations are atomic**: `Database.init()` wraps schema/index work in a single `db.transaction()`. A partial failure rolls back, leaving the DB exactly as it was on entry. Combined with column-existence guards, re-runs are idempotent.
-- **Localhost is pinned to IPv4**: the UI server binds `127.0.0.1` (not `localhost`) and the probe targets `127.0.0.1` to avoid IPv6 resolver mismatches on macOS.
+- **Migrations are atomic**: `Database.init()` wraps schema/index work in a single `db.transaction()`. A partial failure rolls back the schema changes; the SQLite pragmas (`journal_mode=WAL`, `busy_timeout`) run outside the transaction and persist regardless. Combined with column-existence guards, re-runs are idempotent.
+- **UI readiness probe uses IPv4**: the UI server binds `127.0.0.1` and the probe targets `127.0.0.1` to avoid IPv6 resolver mismatches on macOS. The proxy and the base-URL exports the agents consume still use `localhost` — only the readiness path is pinned.
 
 **MITM caveat**: when a coding agent (Claude Code, Codex, Gemini) is actively routing API traffic through the proxy, `agent-feed restart`/`stop` drops in-flight requests. The shell wrapper from `agent-feed shell-init` re-evals env on stop/restart so new commands fall through to direct upstream — but a request *currently in flight* will fail. Restart only when no agent session depends on it.
 

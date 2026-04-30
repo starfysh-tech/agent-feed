@@ -128,15 +128,26 @@ export class Database {
       this.db.close();
       this.db = null;
     }
+    // Cached prepared statements are bound to the closed connection;
+    // drop them so a subsequent init() doesn't reuse a stale handle.
+    this._pingStmt = null;
   }
 
   // Cheap liveness check — used by /api/health to confirm the DB connection
-  // is still serving queries. Throws on closed/corrupt connection. The
-  // prepared statement is lazily cached so probe-rate calls don't pay the
-  // statement-compile cost on each invocation.
+  // is still serving queries. Throws on closed/uninitialized DB. The prepared
+  // statement is lazily cached so probe-rate calls don't pay the
+  // statement-compile cost on each invocation; if the cached statement was
+  // bound to a connection that's since been closed/reopened (test harnesses
+  // do this), re-prepare on the new connection rather than throwing.
   ping() {
+    if (!this.db) throw new Error('Database not initialized');
     if (!this._pingStmt) this._pingStmt = this.db.prepare('SELECT 1 AS ok');
-    return this._pingStmt.get();
+    try {
+      return this._pingStmt.get();
+    } catch {
+      this._pingStmt = this.db.prepare('SELECT 1 AS ok');
+      return this._pingStmt.get();
+    }
   }
 
   async insertRecord(record) {
