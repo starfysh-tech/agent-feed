@@ -4,8 +4,9 @@
 import { claudeAdapter } from './claude.js';
 import { codexAdapter }  from './codex.js';
 import { geminiAdapter } from './gemini.js';
+import { opencodeAdapter } from './opencode.js';
 
-const ADAPTERS = [claudeAdapter, codexAdapter, geminiAdapter];
+const ADAPTERS = [claudeAdapter, codexAdapter, geminiAdapter, opencodeAdapter];
 
 export function getAdapter(record) {
   for (const a of ADAPTERS) {
@@ -22,4 +23,5 @@ export const VENDORS = Object.freeze({
   CLAUDE: 'claude',
   CODEX:  'codex',
   GEMINI: 'gemini',
+  OPENCODE: 'opencode',
 });

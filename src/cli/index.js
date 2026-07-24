@@ -19,9 +19,9 @@ const MAX_LOG_SIZE = 10 * 1024 * 1024; // 10 MB cap for the log file
 const PROXY_ENV_VARS = [
   'ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'GOOGLE_API_BASE_URL',
   'GOOGLE_GEMINI_BASE_URL', 'CODE_ASSIST_ENDPOINT',
-  // OTel ingestion (Claude + Gemini support these directly; Codex requires
-  // editing ~/.codex/config.toml — agent-feed env prints the snippet)
+  // OTel ingestion (Claude Code, OpenCode + Gemini CLI)
   'CLAUDE_CODE_ENABLE_TELEMETRY',
+  'OPENCODE_ENABLE_TELEMETRY',
   'OTEL_EXPORTER_OTLP_PROTOCOL', 'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_LOG_USER_PROMPTS', 'OTEL_LOG_TOOL_CONTENT', 'OTEL_LOG_RAW_API_BODIES',
   'OTEL_RESOURCE_ATTRIBUTES',
@@ -91,8 +91,9 @@ function writeEnvFile(port, otelPort = null) {
   if (otelPort) {
     const otlp = `http://127.0.0.1:${otelPort}`;
     lines.push(
-      '# --- OTel ingestion (Claude Code + Gemini CLI) ---',
+      '# --- OTel ingestion (Claude Code, OpenCode + Gemini CLI) ---',
       'export CLAUDE_CODE_ENABLE_TELEMETRY=1',
+      'export OPENCODE_ENABLE_TELEMETRY=1',
       'export OTEL_EXPORTER_OTLP_PROTOCOL=http/json',
       `export OTEL_EXPORTER_OTLP_ENDPOINT=${otlp}`,
       'export OTEL_LOG_USER_PROMPTS=1',

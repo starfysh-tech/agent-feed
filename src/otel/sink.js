@@ -18,6 +18,7 @@ import { scrubAttrs } from './scrub.js';
 const PROXY_ADAPTER_BY_VENDOR = {
   claude: getProxyAdapter('api.anthropic.com'),
   gemini: getProxyAdapter('generativelanguage.googleapis.com'),
+  opencode: getProxyAdapter('api.anthropic.com'),
 };
 
 // Event kinds that should also produce a `records` row.

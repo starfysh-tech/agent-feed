@@ -104,6 +104,7 @@ function vendorPrefixFor(serviceName) {
   if (!serviceName) return null;
   const s = String(serviceName).toLowerCase();
   if (s.includes('claude')) return 'claude_code';
+  if (s.includes('opencode')) return 'opencode';
   if (s.includes('gemini')) return 'gemini_cli';
   if (s.includes('codex'))  return 'codex';
   return null;

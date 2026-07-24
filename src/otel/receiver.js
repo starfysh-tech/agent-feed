@@ -23,7 +23,7 @@ import { parseLogs, parseMetrics } from './parse.js';
 
 const DEFAULT_PORT = 4318;
 const DEFAULT_HOST = '127.0.0.1';
-const DEFAULT_MAX_BODY = 1_000_000;
+const DEFAULT_MAX_BODY = 10_000_000;
 
 const PARTIAL_SUCCESS = JSON.stringify({ partialSuccess: {} });
 

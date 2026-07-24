@@ -83,7 +83,7 @@ export class App {
         sink,
         host: otelCfg.host ?? '127.0.0.1',
         port: otelCfg.port ?? 4318,
-        maxBodyBytes: otelCfg.max_body_bytes ?? 1_000_000,
+        maxBodyBytes: otelCfg.max_body_bytes ?? 10_000_000,
         logger: this._verbose ? console : { info() {}, warn: console.warn, error: console.error },
       });
       try {
