@@ -116,6 +116,28 @@ describe('Database', () => {
       assert.equal(flag.support_status, 'supported');
       assert.equal(flag.evidence, 'The isolation test passed.');
 
+      const unsupportedId = await db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Docker is available',
+        confidence: 0.8,
+        support_status: 'unsupported',
+        evidence: null,
+      });
+      const uncheckedId = await db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'The network is available',
+        confidence: 0.75,
+      });
+      const storedFlags = await db.getFlagsForRecord(recordId);
+      const unsupported = storedFlags.find(item => item.id === unsupportedId);
+      const unchecked = storedFlags.find(item => item.id === uncheckedId);
+      assert.equal(unsupported.support_status, 'unsupported');
+      assert.equal(unsupported.evidence, null);
+      assert.equal(unchecked.support_status, null);
+      assert.equal(unchecked.evidence, null);
+
       await assert.rejects(() => db.insertFlag({
         record_id: recordId,
         type: 'decision',
