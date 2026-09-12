@@ -124,6 +124,48 @@ describe('Database', () => {
         support_status: 'supported',
         evidence: 'The isolation test passed.',
       }), /only valid for assumption/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.9,
+        support_status: 'supported',
+        evidence: null,
+      }), /require evidence/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.9,
+        support_status: 'unsupported',
+        evidence: 'The isolation test passed.',
+      }), /cannot include evidence/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'decision',
+        content: 'Use isolated workers',
+        confidence: 0.9,
+        evidence: 'The isolation test passed.',
+      }), /only valid for assumption/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.9,
+        support_status: '',
+      }), /Invalid support_status/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.9,
+        evidence: 'The isolation test passed.',
+      }), /Evidence requires supported/);
     });
   });
 

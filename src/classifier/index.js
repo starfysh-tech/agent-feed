@@ -34,10 +34,18 @@ export const ASSUMPTION_SUPPORT_PROMPT = `You are checking whether one extracted
 
 Return ONLY a JSON object with no preamble, explanation, or markdown formatting. No backticks.
 
-The JSON must have this exact shape:
+Use one of these exact JSON shapes.
+
+Supported:
 {
-  "support_status": "supported" or "unsupported",
-  "evidence": "an exact, contiguous quote from the captured response" or null
+  "support_status": "supported",
+  "evidence": "an exact, contiguous quote from the captured response"
+}
+
+Unsupported:
+{
+  "support_status": "unsupported",
+  "evidence": null
 }
 
 Use "supported" only when the captured response contains an explicit observation, test or command result, source citation, or other stated fact that directly supports the claim. Restating the claim is not evidence. The evidence must be copied verbatim from the captured response. If there is no direct support, return "unsupported" with null evidence.`;
@@ -77,19 +85,12 @@ function parseClassifierResponse(text) {
 }
 
 function isClaimRestatement(claim, evidence) {
-  const tokens = (value) => new Set(
-    value.toLowerCase().match(/[a-z0-9]+/g)?.filter(token => token.length > 2) ?? [],
-  );
-  const claimTokens = tokens(claim);
-  const evidenceTokens = tokens(evidence);
-  if (!claimTokens.size || !evidenceTokens.size) return false;
-
-  let shared = 0;
-  for (const token of claimTokens) {
-    if (evidenceTokens.has(token)) shared += 1;
-  }
-  const union = new Set([...claimTokens, ...evidenceTokens]).size;
-  return shared / union >= 0.6;
+  const normalize = value => value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  const normalizedClaim = normalize(claim);
+  return normalizedClaim.length > 0 && normalizedClaim === normalize(evidence);
 }
 
 function parseAssumptionSupportResponse(text, claim, capturedContext) {

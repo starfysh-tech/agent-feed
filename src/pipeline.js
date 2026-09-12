@@ -100,16 +100,27 @@ export class Pipeline {
     // this second-stage support check; all other flag types keep their existing
     // behavior. A failed check remains unchecked rather than inventing support.
     if (this.assumptionSupportFn) {
-      flags = await Promise.all(flags.map(async (flag) => {
-        if (flag.type !== 'assumption') return flag;
+      const checkedFlags = [];
+      // Keep support checks sequential. This bounds provider pressure and avoids
+      // a burst of full-context requests when one response has many assumptions.
+      for (const flag of flags) {
+        if (flag?.type !== 'assumption') {
+          checkedFlags.push(flag);
+          continue;
+        }
         try {
           const support = await this.assumptionSupportFn(flag.content, content);
-          return { ...flag, ...support };
+          checkedFlags.push({
+            ...flag,
+            support_status: support.support_status,
+            evidence: support.evidence,
+          });
         } catch (err) {
           console.error('[pipeline] assumption support error:', err.message ?? err);
-          return { ...flag, support_status: null, evidence: null };
+          checkedFlags.push({ ...flag, support_status: null, evidence: null });
         }
-      }));
+      }
+      flags = checkedFlags;
     }
 
     // Collect git context from the agent's working directory (not the proxy's)
@@ -139,14 +150,16 @@ export class Pipeline {
     // Insert flags
     for (const flag of flags) {
       try {
+        const support = flag.type === 'assumption'
+          ? { support_status: flag.support_status, evidence: flag.evidence }
+          : {};
         await this.db.insertFlag({
           record_id: recordId,
           type: flag.type,
           content: flag.content,
           context: flag.context,
           confidence: flag.confidence,
-          support_status: flag.support_status,
-          evidence: flag.evidence,
+          ...support,
         });
       } catch {
         // skip invalid flags silently

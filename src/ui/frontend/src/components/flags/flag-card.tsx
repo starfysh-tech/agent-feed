@@ -171,7 +171,7 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
       {flag.type === "assumption" && (
         <div className="ml-27 flex items-start gap-2 text-xs text-muted-foreground">
           <AssumptionSupportBadge flag={flag} />
-          <span className="leading-relaxed">
+          <span className="leading-relaxed whitespace-pre-wrap">
             {flag.support_status === "supported" && flag.evidence
               ? `Evidence: “${flag.evidence}”`
               : flag.support_status === "unsupported"

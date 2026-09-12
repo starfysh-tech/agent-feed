@@ -314,10 +314,10 @@ export class Database {
     }
     const supportStatus = flag.support_status ?? null;
     const evidence = flag.evidence ?? null;
-    if (supportStatus && !VALID_SUPPORT_STATUSES.includes(supportStatus)) {
+    if (supportStatus !== null && !VALID_SUPPORT_STATUSES.includes(supportStatus)) {
       throw new Error(`Invalid support_status: ${supportStatus}`);
     }
-    if (flag.type !== 'assumption' && (supportStatus || evidence)) {
+    if (flag.type !== 'assumption' && (supportStatus !== null || evidence !== null)) {
       throw new Error('Support state is only valid for assumption flags');
     }
     if (supportStatus === 'supported' && !evidence) {
@@ -325,6 +325,9 @@ export class Database {
     }
     if (supportStatus === 'unsupported' && evidence) {
       throw new Error('Unsupported assumptions cannot include evidence');
+    }
+    if (evidence !== null && supportStatus !== 'supported') {
+      throw new Error('Evidence requires supported support status');
     }
     const id = randomUUID();
     this.db.prepare(

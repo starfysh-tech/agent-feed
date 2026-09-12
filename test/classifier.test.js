@@ -33,6 +33,7 @@ describe('ASSUMPTION_SUPPORT_PROMPT', () => {
     assert.ok(ASSUMPTION_SUPPORT_PROMPT.includes('exact, contiguous quote'));
     assert.ok(ASSUMPTION_SUPPORT_PROMPT.includes('supported'));
     assert.ok(ASSUMPTION_SUPPORT_PROMPT.includes('unsupported'));
+    assert.equal(ASSUMPTION_SUPPORT_PROMPT.includes('"supported" or "unsupported"'), false);
   });
 });
 
@@ -182,6 +183,47 @@ describe('buildAssumptionSupportChecker', () => {
     assert.deepEqual(result, { support_status: 'supported', evidence: captured });
   });
 
+  it('parses a supported OpenAI-compatible response', async () => {
+    const captured = 'The health check returned HTTP 200.';
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'ollama', model: 'llama3.1', base_url: 'http://localhost:11434' },
+      async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                support_status: 'supported',
+                evidence: captured,
+              }),
+            },
+          }],
+        }),
+      }),
+    );
+
+    const result = await checker('The service is healthy', captured);
+    assert.deepEqual(result, { support_status: 'supported', evidence: captured });
+  });
+
+  it('accepts an explicit unsupported result', async () => {
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      async () => ({
+        ok: true,
+        json: async () => ({
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ support_status: 'unsupported', evidence: null }),
+          }],
+        }),
+      }),
+    );
+
+    const result = await checker('Docker is available', 'Assuming Docker is available.');
+    assert.deepEqual(result, { support_status: 'unsupported', evidence: null });
+  });
+
   it('downgrades invented evidence to unsupported', async () => {
     const checker = buildAssumptionSupportChecker(
       { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
@@ -206,8 +248,8 @@ describe('buildAssumptionSupportChecker', () => {
     assert.deepEqual(result, { support_status: 'unsupported', evidence: null });
   });
 
-  it('does not accept the assumption itself as evidence', async () => {
-    const statement = 'We can safely reuse this auth token across workers.';
+  it('does not accept an exact short assumption as evidence', async () => {
+    const statement = 'DB is up.';
     const checker = buildAssumptionSupportChecker(
       { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
       async () => ({
@@ -224,8 +266,58 @@ describe('buildAssumptionSupportChecker', () => {
       }),
     );
 
-    const result = await checker('Reuse auth token across workers', statement);
+    const result = await checker('DB is up', statement);
     assert.deepEqual(result, { support_status: 'unsupported', evidence: null });
+  });
+
+  it('accepts overlapping evidence when it adds a supporting fact', async () => {
+    const evidence = 'Docker is available in the sandbox, confirmed by docker ps.';
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      async () => ({
+        ok: true,
+        json: async () => ({
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ support_status: 'supported', evidence }),
+          }],
+        }),
+      }),
+    );
+
+    const result = await checker('Docker is available in the sandbox', evidence);
+    assert.deepEqual(result, { support_status: 'supported', evidence });
+  });
+
+  it('leaves malformed JSON unchecked', async () => {
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      async () => ({
+        ok: true,
+        json: async () => ({ content: [{ type: 'text', text: 'not json' }] }),
+      }),
+    );
+
+    const result = await checker('Docker is available', 'Docker is available.');
+    assert.deepEqual(result, { support_status: null, evidence: null });
+  });
+
+  it('leaves an unexpected support status unchecked', async () => {
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      async () => ({
+        ok: true,
+        json: async () => ({
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ support_status: 'unknown', evidence: null }),
+          }],
+        }),
+      }),
+    );
+
+    const result = await checker('Docker is available', 'Docker is available.');
+    assert.deepEqual(result, { support_status: null, evidence: null });
   });
 
   it('leaves the result unchecked when the support service fails', async () => {
