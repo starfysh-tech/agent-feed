@@ -22,6 +22,8 @@ const VALID_REVIEW_STATUSES = [
   'false_positive',
 ];
 
+const VALID_SUPPORT_STATUSES = ['supported', 'unsupported'];
+
 const VALID_SOURCES = ['proxy', 'otel'];
 
 const SCHEMA = `
@@ -55,6 +57,8 @@ const SCHEMA = `
     confidence REAL NOT NULL,
     review_status TEXT NOT NULL DEFAULT 'unreviewed',
     context TEXT,
+    support_status TEXT,
+    evidence TEXT,
     reviewer_note TEXT,
     outcome TEXT,
     FOREIGN KEY (record_id) REFERENCES records(id)
@@ -105,6 +109,12 @@ export class Database {
       const flagCols = this.db.pragma('table_info(flags)').map(c => c.name);
       if (!flagCols.includes('context')) {
         this.db.exec('ALTER TABLE flags ADD COLUMN context TEXT');
+      }
+      if (!flagCols.includes('support_status')) {
+        this.db.exec('ALTER TABLE flags ADD COLUMN support_status TEXT');
+      }
+      if (!flagCols.includes('evidence')) {
+        this.db.exec('ALTER TABLE flags ADD COLUMN evidence TEXT');
       }
       const recordCols = this.db.pragma('table_info(records)').map(c => c.name);
       if (!recordCols.includes('response_text')) {
@@ -302,11 +312,36 @@ export class Database {
     if (!VALID_FLAG_TYPES.includes(flag.type)) {
       throw new Error(`Invalid flag type: ${flag.type}. Must be one of: ${VALID_FLAG_TYPES.join(', ')}`);
     }
+    const supportStatus = flag.support_status ?? null;
+    const evidence = flag.evidence ?? null;
+    if (supportStatus && !VALID_SUPPORT_STATUSES.includes(supportStatus)) {
+      throw new Error(`Invalid support_status: ${supportStatus}`);
+    }
+    if (flag.type !== 'assumption' && (supportStatus || evidence)) {
+      throw new Error('Support state is only valid for assumption flags');
+    }
+    if (supportStatus === 'supported' && !evidence) {
+      throw new Error('Supported assumptions require evidence');
+    }
+    if (supportStatus === 'unsupported' && evidence) {
+      throw new Error('Unsupported assumptions cannot include evidence');
+    }
     const id = randomUUID();
     this.db.prepare(
-      `INSERT INTO flags (id, record_id, type, content, context, confidence, review_status)
-       VALUES (?, ?, ?, ?, ?, ?, 'unreviewed')`
-    ).run(id, flag.record_id, flag.type, flag.content, flag.context ?? null, flag.confidence);
+      `INSERT INTO flags (
+        id, record_id, type, content, context, confidence,
+        support_status, evidence, review_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unreviewed')`
+    ).run(
+      id,
+      flag.record_id,
+      flag.type,
+      flag.content,
+      flag.context ?? null,
+      flag.confidence,
+      supportStatus,
+      evidence,
+    );
     return id;
   }
 

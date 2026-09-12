@@ -195,6 +195,64 @@ describe('Pipeline', () => {
     await db.close();
   });
 
+  it('checks support only for assumptions and stores the result', async () => {
+    const db = new Database(':memory:');
+    await db.init();
+
+    const calls = [];
+    const pipeline = new Pipeline({
+      db,
+      classifierFn: async () => ({
+        response_summary: 'agent made a decision and an assumption',
+        flags: [
+          { type: 'decision', content: 'Use a worker pool', confidence: 0.9 },
+          { type: 'assumption', content: 'Workers have isolated tokens', confidence: 0.85 },
+        ],
+      }),
+      assumptionSupportFn: async (claim, capturedContext) => {
+        calls.push({ claim, capturedContext });
+        return {
+          support_status: 'supported',
+          evidence: 'The isolation test passed for three workers.',
+        };
+      },
+    });
+
+    await pipeline.process({
+      timestamp: new Date().toISOString(),
+      host: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      requestHeaders: {},
+      rawRequest: '{}',
+      rawResponse: JSON.stringify({
+        id: 'msg_assumption_support_test',
+        model: 'claude-sonnet-4-6',
+        content: [{
+          type: 'text',
+          text: 'The isolation test passed for three workers. We can reuse one token per worker.',
+        }],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      }),
+      statusCode: 200,
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].claim, 'Workers have isolated tokens');
+    assert.ok(calls[0].capturedContext.includes('isolation test passed'));
+
+    const records = await db.getSession('msg_assumption_support_test');
+    const flags = await db.getFlagsForRecord(records[0].id);
+    const decision = flags.find(flag => flag.type === 'decision');
+    const assumption = flags.find(flag => flag.type === 'assumption');
+    assert.equal(decision.support_status, null);
+    assert.equal(decision.evidence, null);
+    assert.equal(assumption.support_status, 'supported');
+    assert.equal(assumption.evidence, 'The isolation test passed for three workers.');
+
+    await db.close();
+  });
+
   it('groups claude turns by request metadata session_id', async () => {
     const db = new Database(':memory:');
     await db.init();

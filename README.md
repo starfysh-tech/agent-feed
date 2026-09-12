@@ -72,6 +72,7 @@ agent-feed eval show         Show missed flags and false positives
 
 The web UI shows flagged items per session. Each flag includes:
 - Type, confidence, and supporting context from the agent's response
+- For assumptions, a separate support state and the exact captured evidence when found
 - Accept / Needs Change / False Positive actions
 - Reviewer note and outcome fields
 

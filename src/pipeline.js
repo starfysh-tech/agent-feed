@@ -46,9 +46,10 @@ function trimRequestForStorage(rawRequest) {
 }
 
 export class Pipeline {
-  constructor({ db, classifierFn = null }) {
+  constructor({ db, classifierFn = null, assumptionSupportFn = null }) {
     this.db = db;
     this.classifierFn = classifierFn;
+    this.assumptionSupportFn = assumptionSupportFn;
   }
 
   // source: 'proxy' (default) or 'otel'. Backward-compatible.
@@ -95,6 +96,22 @@ export class Pipeline {
       }
     }
 
+    // Extraction and judgment are deliberately separate. Only assumptions get
+    // this second-stage support check; all other flag types keep their existing
+    // behavior. A failed check remains unchecked rather than inventing support.
+    if (this.assumptionSupportFn) {
+      flags = await Promise.all(flags.map(async (flag) => {
+        if (flag.type !== 'assumption') return flag;
+        try {
+          const support = await this.assumptionSupportFn(flag.content, content);
+          return { ...flag, ...support };
+        } catch (err) {
+          console.error('[pipeline] assumption support error:', err.message ?? err);
+          return { ...flag, support_status: null, evidence: null };
+        }
+      }));
+    }
+
     // Collect git context from the agent's working directory (not the proxy's)
     const agentCwd = extractWorkingDirectory(capture.rawRequest) ?? process.cwd();
     const gitCtx = await getGitContext(agentCwd);
@@ -128,6 +145,8 @@ export class Pipeline {
           content: flag.content,
           context: flag.context,
           confidence: flag.confidence,
+          support_status: flag.support_status,
+          evidence: flag.evidence,
         });
       } catch {
         // skip invalid flags silently

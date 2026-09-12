@@ -30,23 +30,35 @@ Flag types (use exactly these strings):
 Extract every qualifying flag you find. Include all flags with confidence >= 0.7.
 If there are no qualifying flags, return an empty array.`;
 
+export const ASSUMPTION_SUPPORT_PROMPT = `You are checking whether one extracted assumption is supported by evidence in a captured coding-agent response.
+
+Return ONLY a JSON object with no preamble, explanation, or markdown formatting. No backticks.
+
+The JSON must have this exact shape:
+{
+  "support_status": "supported" or "unsupported",
+  "evidence": "an exact, contiguous quote from the captured response" or null
+}
+
+Use "supported" only when the captured response contains an explicit observation, test or command result, source citation, or other stated fact that directly supports the claim. Restating the claim is not evidence. The evidence must be copied verbatim from the captured response. If there is no direct support, return "unsupported" with null evidence.`;
+
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
-function buildAnthropicBody(model, content) {
+function buildAnthropicBody(model, content, prompt = CLASSIFICATION_PROMPT, maxTokens = 1000) {
   return {
     model,
-    max_tokens: 1000,
-    messages: [{ role: 'user', content: `${CLASSIFICATION_PROMPT}\n\nAgent response to analyze:\n\n${content}` }],
+    max_tokens: maxTokens,
+    messages: [{ role: 'user', content: `${prompt}\n\n${content}` }],
   };
 }
 
-function buildOpenAICompatibleBody(model, content) {
+function buildOpenAICompatibleBody(model, content, prompt = CLASSIFICATION_PROMPT, maxTokens = 1000) {
   return {
     model,
-    max_tokens: 1000,
+    max_tokens: maxTokens,
     messages: [
-      { role: 'system', content: CLASSIFICATION_PROMPT },
-      { role: 'user', content: `Agent response to analyze:\n\n${content}` },
+      { role: 'system', content: prompt },
+      { role: 'user', content },
     ],
   };
 }
@@ -64,6 +76,47 @@ function parseClassifierResponse(text) {
   }
 }
 
+function isClaimRestatement(claim, evidence) {
+  const tokens = (value) => new Set(
+    value.toLowerCase().match(/[a-z0-9]+/g)?.filter(token => token.length > 2) ?? [],
+  );
+  const claimTokens = tokens(claim);
+  const evidenceTokens = tokens(evidence);
+  if (!claimTokens.size || !evidenceTokens.size) return false;
+
+  let shared = 0;
+  for (const token of claimTokens) {
+    if (evidenceTokens.has(token)) shared += 1;
+  }
+  const union = new Set([...claimTokens, ...evidenceTokens]).size;
+  return shared / union >= 0.6;
+}
+
+function parseAssumptionSupportResponse(text, claim, capturedContext) {
+  try {
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+
+    if (parsed.support_status === 'unsupported') {
+      return { support_status: 'unsupported', evidence: null };
+    }
+
+    if (parsed.support_status !== 'supported' || typeof parsed.evidence !== 'string') {
+      return { support_status: null, evidence: null };
+    }
+
+    const evidence = parsed.evidence.trim();
+    if (!evidence || !capturedContext.includes(evidence) || isClaimRestatement(claim, evidence)) {
+      // The model may judge relevance, but it cannot invent provenance.
+      return { support_status: 'unsupported', evidence: null };
+    }
+
+    return { support_status: 'supported', evidence };
+  } catch {
+    return { support_status: null, evidence: null };
+  }
+}
+
 export function buildClassifier(config, fetchFn = fetch) {
   const { provider, model, base_url } = config;
 
@@ -74,7 +127,7 @@ export function buildClassifier(config, fetchFn = fetch) {
 
     if (provider === 'anthropic') {
       url = ANTHROPIC_API_URL;
-      body = buildAnthropicBody(model, content);
+      body = buildAnthropicBody(model, `Agent response to analyze:\n\n${content}`);
       // API key injected by environment at runtime
       const apiKey = process.env.ANTHROPIC_API_KEY;
       if (apiKey) headers['x-api-key'] = apiKey;
@@ -82,7 +135,7 @@ export function buildClassifier(config, fetchFn = fetch) {
     } else {
       // ollama and lmstudio both expose OpenAI-compatible /v1/chat/completions
       url = `${base_url}/v1/chat/completions`;
-      body = buildOpenAICompatibleBody(model, content);
+      body = buildOpenAICompatibleBody(model, `Agent response to analyze:\n\n${content}`);
     }
 
     const response = await fetchFn(url, {
@@ -106,6 +159,45 @@ export function buildClassifier(config, fetchFn = fetch) {
     }
 
     return parseClassifierResponse(text);
+  };
+}
+
+export function buildAssumptionSupportChecker(config, fetchFn = fetch) {
+  const { provider, model, base_url } = config;
+
+  return async function checkAssumptionSupport(claim, capturedContext) {
+    let url;
+    let body;
+    const headers = { 'Content-Type': 'application/json' };
+    const content = `Claim:\n${claim}\n\nCaptured response:\n${capturedContext}`;
+
+    if (provider === 'anthropic') {
+      url = ANTHROPIC_API_URL;
+      body = buildAnthropicBody(model, content, ASSUMPTION_SUPPORT_PROMPT, 250);
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (apiKey) headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    } else {
+      url = `${base_url}/v1/chat/completions`;
+      body = buildOpenAICompatibleBody(model, content, ASSUMPTION_SUPPORT_PROMPT, 250);
+    }
+
+    const response = await fetchFn(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      return { support_status: null, evidence: null };
+    }
+
+    const data = await response.json();
+    const text = provider === 'anthropic'
+      ? data.content?.find(b => b.type === 'text')?.text ?? ''
+      : data.choices?.[0]?.message?.content ?? '';
+
+    return parseAssumptionSupportResponse(text, claim, capturedContext);
   };
 }
 

@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildClassifier, CLASSIFICATION_PROMPT } from '../src/classifier/index.js';
+import {
+  ASSUMPTION_SUPPORT_PROMPT,
+  buildAssumptionSupportChecker,
+  buildClassifier,
+  CLASSIFICATION_PROMPT,
+} from '../src/classifier/index.js';
 
 describe('CLASSIFICATION_PROMPT', () => {
   it('is a non-empty string', () => {
@@ -20,6 +25,14 @@ describe('CLASSIFICATION_PROMPT', () => {
     for (const type of types) {
       assert.ok(CLASSIFICATION_PROMPT.includes(type), `prompt should mention flag type: ${type}`);
     }
+  });
+});
+
+describe('ASSUMPTION_SUPPORT_PROMPT', () => {
+  it('requires exact evidence and a two-state judgment', () => {
+    assert.ok(ASSUMPTION_SUPPORT_PROMPT.includes('exact, contiguous quote'));
+    assert.ok(ASSUMPTION_SUPPORT_PROMPT.includes('supported'));
+    assert.ok(ASSUMPTION_SUPPORT_PROMPT.includes('unsupported'));
   });
 });
 
@@ -143,5 +156,85 @@ describe('buildClassifier', () => {
     return classifier('test').then(() => {
       assert.ok(capturedUrl.startsWith('http://localhost:11434'), `expected ollama URL, got ${capturedUrl}`);
     });
+  });
+});
+
+describe('buildAssumptionSupportChecker', () => {
+  it('accepts supported only when the evidence is present verbatim', async () => {
+    const captured = 'The integration test passed with three isolated workers.';
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      async () => ({
+        ok: true,
+        json: async () => ({
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              support_status: 'supported',
+              evidence: 'The integration test passed with three isolated workers.',
+            }),
+          }],
+        }),
+      }),
+    );
+
+    const result = await checker('Workers are isolated', captured);
+    assert.deepEqual(result, { support_status: 'supported', evidence: captured });
+  });
+
+  it('downgrades invented evidence to unsupported', async () => {
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      async () => ({
+        ok: true,
+        json: async () => ({
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              support_status: 'supported',
+              evidence: 'A test proved token reuse is safe.',
+            }),
+          }],
+        }),
+      }),
+    );
+
+    const result = await checker(
+      'Auth tokens can be reused across workers',
+      'We can safely reuse this auth token across workers.',
+    );
+    assert.deepEqual(result, { support_status: 'unsupported', evidence: null });
+  });
+
+  it('does not accept the assumption itself as evidence', async () => {
+    const statement = 'We can safely reuse this auth token across workers.';
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', base_url: '' },
+      async () => ({
+        ok: true,
+        json: async () => ({
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              support_status: 'supported',
+              evidence: statement,
+            }),
+          }],
+        }),
+      }),
+    );
+
+    const result = await checker('Reuse auth token across workers', statement);
+    assert.deepEqual(result, { support_status: 'unsupported', evidence: null });
+  });
+
+  it('leaves the result unchecked when the support service fails', async () => {
+    const checker = buildAssumptionSupportChecker(
+      { provider: 'ollama', model: 'llama3.1', base_url: 'http://localhost:11434' },
+      async () => ({ ok: false }),
+    );
+
+    const result = await checker('Docker is available', 'Assuming Docker is available.');
+    assert.deepEqual(result, { support_status: null, evidence: null });
   });
 });

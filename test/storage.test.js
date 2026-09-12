@@ -90,6 +90,41 @@ describe('Database', () => {
         });
       });
     });
+
+    it('stores support state only for assumption flags', async () => {
+      const recordId = await db.insertRecord({
+        timestamp: new Date().toISOString(),
+        agent: 'claude-code',
+        session_id: 'sess-assumption-support',
+        turn_index: 1,
+        working_directory: '/tmp',
+        response_summary: 'checked an assumption',
+        raw_response: '{}',
+        model: 'claude-sonnet-4-6',
+      });
+
+      const flagId = await db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.88,
+        support_status: 'supported',
+        evidence: 'The isolation test passed.',
+      });
+      const [flag] = await db.getFlagsForRecord(recordId);
+      assert.equal(flag.id, flagId);
+      assert.equal(flag.support_status, 'supported');
+      assert.equal(flag.evidence, 'The isolation test passed.');
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'decision',
+        content: 'Use isolated workers',
+        confidence: 0.9,
+        support_status: 'supported',
+        evidence: 'The isolation test passed.',
+      }), /only valid for assumption/);
+    });
   });
 
   describe('getSession', () => {

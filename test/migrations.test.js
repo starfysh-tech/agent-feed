@@ -35,6 +35,10 @@ describe('Database migration safety', () => {
       for (const expected of ['source', 'request_id', 'response_text', 'turn_index']) {
         assert.ok(recordCols.includes(expected), `records missing ${expected}`);
       }
+      const flagCols = db.db.pragma('table_info(flags)').map(c => c.name);
+      for (const expected of ['context', 'support_status', 'evidence']) {
+        assert.ok(flagCols.includes(expected), `flags missing ${expected}`);
+      }
 
       const indexes = db.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='records'`).all().map(r => r.name);
       assert.ok(indexes.includes('idx_records_session_request'));
@@ -133,6 +137,10 @@ describe('Database migration safety', () => {
       }
       const indexes = db.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='records'`).all().map(r => r.name);
       assert.ok(indexes.includes('idx_records_session_request'), 'index should be created post-migration');
+      const flagCols = db.db.pragma('table_info(flags)').map(c => c.name);
+      for (const expected of ['context', 'support_status', 'evidence']) {
+        assert.ok(flagCols.includes(expected), `legacy flags should include ${expected}`);
+      }
 
       // Verify the flags->records FK still works on the migrated DB by
       // round-tripping through the public insertRecord/insertFlag API.
