@@ -41,6 +41,24 @@ function getTypeColor(type: string) {
   return TYPE_COLOR[type] ?? "text-foreground";
 }
 
+function AssumptionSupportBadge({ flag }: { flag: Flag }) {
+  if (flag.type !== "assumption") return null;
+  const status = flag.support_status ?? "not checked";
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "text-[9px] font-mono shrink-0",
+        status === "supported" && "border-emerald-500/40 text-emerald-400",
+        status === "unsupported" && "border-amber-400/40 text-amber-400",
+        status === "not checked" && "text-muted-foreground",
+      )}
+    >
+      {status}
+    </Badge>
+  );
+}
+
 export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes }: FlagCardProps) {
   const isReviewed = flag.review_status !== "unreviewed";
   const [note, setNote] = useState(flag.reviewer_note ?? "");
@@ -81,6 +99,7 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
           {flag.type}
         </span>
         <span className="text-xs text-muted-foreground truncate flex-1">{flag.content}</span>
+        <AssumptionSupportBadge flag={flag} />
         <Badge
           variant="outline"
           className={cn("text-[9px] font-mono shrink-0 border-0", STATUS_ACTIVE[flag.review_status])}
@@ -100,6 +119,7 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
             {flag.type}
           </span>
           <span className="text-sm text-foreground flex-1 min-w-0 truncate">{flag.content}</span>
+          <AssumptionSupportBadge flag={flag} />
           <span className="font-mono text-[10px] text-muted-foreground shrink-0 pt-0.5">
             {confidence}%
           </span>
@@ -146,6 +166,19 @@ export function FlagCard({ flag, expanded, onToggle, onStatusChange, onSaveNotes
         <p className="text-xs text-muted-foreground leading-relaxed ml-27 pl-0.5">
           {flag.context}
         </p>
+      )}
+
+      {flag.type === "assumption" && (
+        <div className="ml-27 flex items-start gap-2 text-xs text-muted-foreground">
+          <AssumptionSupportBadge flag={flag} />
+          <span className="leading-relaxed whitespace-pre-wrap">
+            {flag.support_status === "supported" && flag.evidence
+              ? `Evidence: “${flag.evidence}”`
+              : flag.support_status === "unsupported"
+                ? "No supporting evidence found in the captured response."
+                : "Support check was not completed for this item."}
+          </span>
+        </div>
       )}
 
       {/* Actions */}

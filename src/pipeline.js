@@ -46,9 +46,10 @@ function trimRequestForStorage(rawRequest) {
 }
 
 export class Pipeline {
-  constructor({ db, classifierFn = null }) {
+  constructor({ db, classifierFn = null, assumptionSupportFn = null }) {
     this.db = db;
     this.classifierFn = classifierFn;
+    this.assumptionSupportFn = assumptionSupportFn;
   }
 
   // source: 'proxy' (default) or 'otel'. Backward-compatible.
@@ -95,6 +96,33 @@ export class Pipeline {
       }
     }
 
+    // Extraction and judgment are deliberately separate. Only assumptions get
+    // this second-stage support check; all other flag types keep their existing
+    // behavior. A failed check remains unchecked rather than inventing support.
+    if (this.assumptionSupportFn) {
+      const checkedFlags = [];
+      // Keep support checks sequential. This bounds provider pressure and avoids
+      // a burst of full-context requests when one response has many assumptions.
+      for (const flag of flags) {
+        if (flag?.type !== 'assumption') {
+          checkedFlags.push(flag);
+          continue;
+        }
+        try {
+          const support = await this.assumptionSupportFn(flag.content, content);
+          checkedFlags.push({
+            ...flag,
+            support_status: support.support_status,
+            evidence: support.evidence,
+          });
+        } catch (err) {
+          console.error('[pipeline] assumption support error:', err.message ?? err);
+          checkedFlags.push({ ...flag, support_status: null, evidence: null });
+        }
+      }
+      flags = checkedFlags;
+    }
+
     // Collect git context from the agent's working directory (not the proxy's)
     const agentCwd = extractWorkingDirectory(capture.rawRequest) ?? process.cwd();
     const gitCtx = await getGitContext(agentCwd);
@@ -122,12 +150,16 @@ export class Pipeline {
     // Insert flags
     for (const flag of flags) {
       try {
+        const support = flag.type === 'assumption'
+          ? { support_status: flag.support_status, evidence: flag.evidence }
+          : {};
         await this.db.insertFlag({
           record_id: recordId,
           type: flag.type,
           content: flag.content,
           context: flag.context,
           confidence: flag.confidence,
+          ...support,
         });
       } catch {
         // skip invalid flags silently

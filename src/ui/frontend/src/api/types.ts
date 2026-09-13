@@ -17,6 +17,8 @@ export interface Flag {
   content: string;
   context: string | null;
   confidence: number;
+  support_status: AssumptionSupportStatus | null;
+  evidence: string | null;
   review_status: ReviewStatus;
   reviewer_note: string | null;
   outcome: string | null;
@@ -85,6 +87,8 @@ export type ReviewStatus =
   | "accepted"
   | "needs_change"
   | "false_positive";
+
+export type AssumptionSupportStatus = "supported" | "unsupported";
 
 // OTel-derived events surfaced in the UI ────────────────────────────────────
 export interface OtelEvent {

@@ -90,6 +90,105 @@ describe('Database', () => {
         });
       });
     });
+
+    it('stores support state only for assumption flags', async () => {
+      const recordId = await db.insertRecord({
+        timestamp: new Date().toISOString(),
+        agent: 'claude-code',
+        session_id: 'sess-assumption-support',
+        turn_index: 1,
+        working_directory: '/tmp',
+        response_summary: 'checked an assumption',
+        raw_response: '{}',
+        model: 'claude-sonnet-4-6',
+      });
+
+      const flagId = await db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.88,
+        support_status: 'supported',
+        evidence: 'The isolation test passed.',
+      });
+      const [flag] = await db.getFlagsForRecord(recordId);
+      assert.equal(flag.id, flagId);
+      assert.equal(flag.support_status, 'supported');
+      assert.equal(flag.evidence, 'The isolation test passed.');
+
+      const unsupportedId = await db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Docker is available',
+        confidence: 0.8,
+        support_status: 'unsupported',
+        evidence: null,
+      });
+      const uncheckedId = await db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'The network is available',
+        confidence: 0.75,
+      });
+      const storedFlags = await db.getFlagsForRecord(recordId);
+      const unsupported = storedFlags.find(item => item.id === unsupportedId);
+      const unchecked = storedFlags.find(item => item.id === uncheckedId);
+      assert.equal(unsupported.support_status, 'unsupported');
+      assert.equal(unsupported.evidence, null);
+      assert.equal(unchecked.support_status, null);
+      assert.equal(unchecked.evidence, null);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'decision',
+        content: 'Use isolated workers',
+        confidence: 0.9,
+        support_status: 'supported',
+        evidence: 'The isolation test passed.',
+      }), /only valid for assumption/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.9,
+        support_status: 'supported',
+        evidence: null,
+      }), /require evidence/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.9,
+        support_status: 'unsupported',
+        evidence: 'The isolation test passed.',
+      }), /cannot include evidence/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'decision',
+        content: 'Use isolated workers',
+        confidence: 0.9,
+        evidence: 'The isolation test passed.',
+      }), /only valid for assumption/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.9,
+        support_status: '',
+      }), /Invalid support_status/);
+
+      await assert.rejects(() => db.insertFlag({
+        record_id: recordId,
+        type: 'assumption',
+        content: 'Workers are isolated',
+        confidence: 0.9,
+        evidence: 'The isolation test passed.',
+      }), /Evidence requires supported/);
+    });
   });
 
   describe('getSession', () => {

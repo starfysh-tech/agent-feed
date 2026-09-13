@@ -4,7 +4,11 @@ import fs from 'node:fs';
 import { Proxy } from './proxy/index.js';
 import { Database } from './storage/database.js';
 import { Pipeline } from './pipeline.js';
-import { buildClassifier, validateClassifierWithFallback } from './classifier/index.js';
+import {
+  buildAssumptionSupportChecker,
+  buildClassifier,
+  validateClassifierWithFallback,
+} from './classifier/index.js';
 import { createUIServer } from './ui/server.js';
 import { OtelReceiver } from './otel/receiver.js';
 import { OtelSink } from './otel/sink.js';
@@ -56,9 +60,12 @@ export class App {
     const classifierFn = this.skipClassifierValidation
       ? null
       : buildClassifier(classifierCfg);
+    const assumptionSupportFn = this.skipClassifierValidation
+      ? null
+      : buildAssumptionSupportChecker(classifierCfg);
 
     // Build pipeline
-    const pipeline = new Pipeline({ db: this._db, classifierFn });
+    const pipeline = new Pipeline({ db: this._db, classifierFn, assumptionSupportFn });
 
     // Start proxy
     this._proxy = new Proxy({

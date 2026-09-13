@@ -72,3 +72,9 @@ The classifier extracts these types from every response:
 | `constraint` | A hard limit shaping the approach |
 | `workaround` | A temporary or non-ideal solution knowingly applied |
 | `risk` | Something flagged as potentially problematic |
+
+Assumptions receive one additional, separate check after extraction. A completed
+check records `supported` only when it points to an exact quote in the captured
+response; when no such evidence exists, it records `unsupported`. If the check
+cannot complete, its nullable fields remain empty and the UI says support was not
+checked. Other flag types are not judged by this stage.
